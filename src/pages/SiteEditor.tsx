@@ -60,6 +60,11 @@ export default function SiteEditor() {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [images, setImages] = useState<SiteImage[]>([]);
+  const [showImages, setShowImages] = useState(false);
+  const [slotKey, setSlotKey] = useState('home-hero');
+  const [customSlot, setCustomSlot] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     if (!siteId) return;
