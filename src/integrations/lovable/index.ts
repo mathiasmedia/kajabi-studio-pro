@@ -1,6 +1,10 @@
 /**
  * Lovable Cloud Auth — managed OAuth broker (Google / Apple).
  *
+ * Google is "Managed by Lovable" on the master project, so OAuth must go
+ * through the broker (not supabase.auth.signInWithOAuth directly — the
+ * master Supabase project deliberately has no client-secret).
+ *
  * After a successful sign-in, hand the returned tokens to the master
  * Supabase client so it has a normal session.
  */
