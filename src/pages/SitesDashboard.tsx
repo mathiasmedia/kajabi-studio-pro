@@ -44,8 +44,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { MoreVertical, Plus, FileText, Layers, Copy, Check } from 'lucide-react';
+import { MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate as useNav } from 'react-router-dom';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
