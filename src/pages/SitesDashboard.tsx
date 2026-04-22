@@ -120,9 +120,17 @@ export default function SitesDashboard() {
               <p className="text-xs text-muted-foreground">Local sites · Master-powered AI &amp; scraping.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {user?.email && (
+              <span className="hidden text-sm text-muted-foreground sm:inline" title={user.email}>
+                {user.email}
+              </span>
+            )}
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" /> New site
+            </Button>
+            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
+              <LogOut className="h-4 w-4" />
             </Button>
           </div>
         </div>
