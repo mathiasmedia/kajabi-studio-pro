@@ -44,8 +44,9 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { MoreVertical, Plus, FileText, Layers, Copy, Check } from 'lucide-react';
+import { MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -60,10 +61,18 @@ function timeAgo(iso: string): string {
 
 export default function SitesDashboard() {
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+  const { toast } = useToast();
   const [sites, setSites] = useState<Site[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Site | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
+
+  async function handleSignOut() {
+    await signOut();
+    toast({ title: 'Signed out' });
+    navigate('/auth', { replace: true });
+  }
 
   async function refresh() {
     setSites(await listSites());
@@ -111,9 +120,17 @@ export default function SitesDashboard() {
               <p className="text-xs text-muted-foreground">Local sites · Master-powered AI &amp; scraping.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {user?.email && (
+              <span className="hidden text-sm text-muted-foreground sm:inline" title={user.email}>
+                {user.email}
+              </span>
+            )}
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" /> New site
+            </Button>
+            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
+              <LogOut className="h-4 w-4" />
             </Button>
           </div>
         </div>

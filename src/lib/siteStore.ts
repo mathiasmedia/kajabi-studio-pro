@@ -1,12 +1,14 @@
 /**
- * Site store — thin-client localStorage version.
+ * Site store — backed by the MASTER project's Supabase `sites` table.
  *
- * Mirrors the master app's async API exactly so templates/pages don't need
- * to know there's no backend. Sites live under a single localStorage key
- * (`thin-client.sites.v1`) as a JSON array.
+ * Schema (master):
+ *   id uuid pk, user_id uuid, name text, template_id text, brand_name text,
+ *   pages jsonb, created_at timestamptz, updated_at timestamptz
+ *
+ * RLS on the master enforces per-user isolation; we just need to include
+ * `user_id` on insert.
  */
-
-const LS_KEY = 'thin-client.sites.v1';
+import { supabase } from '@/integrations/supabase/client';
 
 export type SystemPageKey =
   | 'index'
@@ -46,44 +48,64 @@ export interface Site {
   pages: Partial<Record<PageKey, { enabled: boolean }>>;
 }
 
-// ---- raw read/write ----
+// ---- row <-> Site mapping ----
 
-function readAll(): Site[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as Site[]) : [];
-  } catch (e) {
-    console.error('[siteStore] read failed:', e);
-    return [];
-  }
+interface SiteRow {
+  id: string;
+  user_id: string;
+  name: string;
+  template_id: string;
+  brand_name: string | null;
+  pages: unknown;
+  created_at: string;
+  updated_at: string;
 }
 
-function writeAll(sites: Site[]): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(sites));
-  } catch (e) {
-    console.error('[siteStore] write failed:', e);
-  }
+function rowToSite(row: SiteRow): Site {
+  const pages =
+    row.pages && typeof row.pages === 'object' && !Array.isArray(row.pages)
+      ? (row.pages as Site['pages'])
+      : {};
+  return {
+    id: row.id,
+    name: row.name,
+    templateId: row.template_id as TemplateId,
+    brandName: row.brand_name ?? row.name,
+    pages,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-function uid(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
+async function requireUserId(): Promise<string> {
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) {
+    throw new Error('Not signed in');
   }
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return data.user.id;
 }
 
-// ---- public API (async to match master) ----
+// ---- public API ----
 
 export async function listSites(): Promise<Site[]> {
-  const all = readAll();
-  return [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const { data, error } = await supabase
+    .from('sites')
+    .select('*')
+    .order('updated_at', { ascending: false });
+  if (error) {
+    console.error('[siteStore] listSites failed:', error);
+    return [];
+  }
+  return (data ?? []).map((r) => rowToSite(r as SiteRow));
 }
 
 export async function getSite(id: string): Promise<Site | null> {
-  return readAll().find((s) => s.id === id) ?? null;
+  const { data, error } = await supabase.from('sites').select('*').eq('id', id).maybeSingle();
+  if (error) {
+    console.error('[siteStore] getSite failed:', error);
+    return null;
+  }
+  return data ? rowToSite(data as SiteRow) : null;
 }
 
 export async function createSite(opts: {
@@ -93,39 +115,54 @@ export async function createSite(opts: {
 }): Promise<Site | null> {
   const name = opts.name.trim() || 'Untitled site';
   const brand = opts.brandName?.trim() || name;
-  const now = new Date().toISOString();
-  const site: Site = {
-    id: uid(),
-    name,
-    templateId: opts.templateId,
-    brandName: brand,
-    pages: {},
-    createdAt: now,
-    updatedAt: now,
-  };
-  const all = readAll();
-  all.push(site);
-  writeAll(all);
-  return site;
+  let userId: string;
+  try {
+    userId = await requireUserId();
+  } catch (e) {
+    console.error('[siteStore] createSite needs auth:', e);
+    return null;
+  }
+  const { data, error } = await supabase
+    .from('sites')
+    .insert({
+      user_id: userId,
+      name,
+      template_id: opts.templateId,
+      brand_name: brand,
+      pages: {},
+    })
+    .select('*')
+    .single();
+  if (error) {
+    console.error('[siteStore] createSite failed:', error);
+    return null;
+  }
+  return rowToSite(data as SiteRow);
 }
 
 export async function updateSite(
   id: string,
   patch: Partial<Omit<Site, 'id' | 'createdAt'>>,
 ): Promise<Site | null> {
-  const all = readAll();
-  const idx = all.findIndex((s) => s.id === id);
-  if (idx === -1) return null;
-  const next: Site = {
-    ...all[idx],
-    ...patch,
-    id: all[idx].id,
-    createdAt: all[idx].createdAt,
-    updatedAt: new Date().toISOString(),
+  const row: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
   };
-  all[idx] = next;
-  writeAll(all);
-  return next;
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.brandName !== undefined) row.brand_name = patch.brandName;
+  if (patch.templateId !== undefined) row.template_id = patch.templateId;
+  if (patch.pages !== undefined) row.pages = patch.pages;
+
+  const { data, error } = await supabase
+    .from('sites')
+    .update(row)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) {
+    console.error('[siteStore] updateSite failed:', error);
+    return null;
+  }
+  return rowToSite(data as SiteRow);
 }
 
 export async function duplicateSite(id: string): Promise<Site | null> {
@@ -139,8 +176,8 @@ export async function duplicateSite(id: string): Promise<Site | null> {
 }
 
 export async function deleteSite(id: string): Promise<void> {
-  const all = readAll().filter((s) => s.id !== id);
-  writeAll(all);
+  const { error } = await supabase.from('sites').delete().eq('id', id);
+  if (error) console.error('[siteStore] deleteSite failed:', error);
 }
 
 export function enabledPageCount(site: Site): number {
