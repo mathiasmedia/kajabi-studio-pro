@@ -47,7 +47,6 @@ import {
 import { MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate as useNav } from 'react-router-dom';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -62,10 +61,18 @@ function timeAgo(iso: string): string {
 
 export default function SitesDashboard() {
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+  const { toast } = useToast();
   const [sites, setSites] = useState<Site[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Site | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
+
+  async function handleSignOut() {
+    await signOut();
+    toast({ title: 'Signed out' });
+    navigate('/auth', { replace: true });
+  }
 
   async function refresh() {
     setSites(await listSites());
