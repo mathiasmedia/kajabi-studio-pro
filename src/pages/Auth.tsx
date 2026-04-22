@@ -23,6 +23,37 @@ export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  async function handleForgotPassword() {
+    if (!email) {
+      toast({
+        title: 'Enter your email first',
+        description: 'Type the email above, then click "Forgot password" again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setResetting(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      toast({
+        title: 'Check your email',
+        description: 'We sent you a link to reset your password.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Could not send reset email',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setResetting(false);
+    }
+  }
 
   useEffect(() => {
     if (!loading && session) navigate('/', { replace: true });
@@ -119,6 +150,16 @@ export default function Auth() {
             <Button type="submit" disabled={busy}>
               {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
             </Button>
+            {mode === 'signin' && (
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={resetting}
+                className="self-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
+              >
+                {resetting ? 'Sending reset link…' : 'Forgot password?'}
+              </button>
+            )}
           </form>
 
         </Card>
