@@ -164,6 +164,55 @@ export default function SiteEditor() {
     }
   }
 
+  const slotOptions = useMemo(() => {
+    const fromTemplate = tpl?.imageSlots?.map((s) => s.key) ?? [];
+    const fromImages = images.map((i) => i.slot).filter((s): s is string => !!s);
+    const all = new Set<string>(['home-hero', ...fromTemplate, ...fromImages]);
+    return Array.from(all);
+  }, [tpl, images]);
+
+  async function refreshImages() {
+    if (!siteId) return;
+    const next = await listSiteImages(siteId);
+    setImages(next);
+  }
+
+  async function handleGenerate() {
+    if (!siteId) return;
+    const slot = (slotKey === '__custom' ? customSlot : slotKey).trim();
+    const trimmedPrompt = prompt.trim();
+    if (!slot) {
+      toast.error('Pick or enter a slot key');
+      return;
+    }
+    if (!trimmedPrompt) {
+      toast.error('Describe the image you want');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const { image, error } = await generateSiteImage(siteId, {
+        prompt: trimmedPrompt,
+        slot,
+      });
+      if (error || !image) {
+        toast.error(error ?? 'Generation failed');
+        return;
+      }
+      toast.success(`Image generated for "${slot}"`);
+      setPrompt('');
+      await refreshImages();
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleDeleteImage(img: SiteImage) {
+    await deleteSiteImage(img);
+    await refreshImages();
+    toast.success('Image removed');
+  }
+
   if (!site || !tpl) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
