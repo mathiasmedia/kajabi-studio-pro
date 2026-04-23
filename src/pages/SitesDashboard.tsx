@@ -13,7 +13,6 @@ import {
   enabledPageCount,
   type Site,
 } from '@/lib/siteStore';
-import { getTemplate } from '@/lib/templates';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -83,7 +82,7 @@ export default function SitesDashboard() {
   }, []);
 
   async function handleCreate(name: string) {
-    const site = await createSite({ name, templateId: 'blank', brandName: name });
+    const site = await createSite({ name, brandName: name });
     if (!site) return;
     await refresh();
     setCreateOpen(false);
@@ -218,7 +217,6 @@ function SiteCard({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
-  const tpl = getTemplate(site.templateId);
   const pageCount = enabledPageCount(site);
 
   return (
