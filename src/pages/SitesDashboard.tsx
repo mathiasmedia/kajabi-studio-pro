@@ -116,8 +116,8 @@ export default function SitesDashboard() {
               <Layers className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold leading-tight">Kajabi Studio — Thin Client</h1>
-              <p className="text-xs text-muted-foreground">Local sites · Master-powered AI &amp; scraping.</p>
+              <h1 className="text-lg font-semibold leading-tight">Kajabi Studio</h1>
+              <p className="text-xs text-muted-foreground">Cloud-synced sites · AI &amp; scraping built in.</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
