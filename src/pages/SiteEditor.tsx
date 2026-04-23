@@ -242,9 +242,13 @@ export default function SiteEditor() {
           </SelectContent>
         </Select>
 
+        <Button onClick={handleGenerateHero} disabled={busy} size="sm" variant="outline">
+          <Sparkles className="h-4 w-4" />
+          Generate hero image
+        </Button>
         <Button onClick={handleExport} disabled={busy} size="sm">
           <Download className="h-4 w-4" />
-          {busy ? 'Building zip…' : 'Export theme'}
+          {busy ? 'Working…' : 'Export theme'}
         </Button>
       </div>
 
