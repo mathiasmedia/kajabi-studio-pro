@@ -12,7 +12,7 @@ import {
   type Site,
 } from '@/lib/siteStore';
 import { getTemplate } from '@/lib/templates';
-import { listSiteImages, imagesBySlot, generateSiteImage, type SiteImage } from '@/lib/imageStore';
+import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,8 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Download, Pencil, Sparkles } from 'lucide-react';
-import { toast } from 'sonner';
+import { ArrowLeft, Download, Pencil } from 'lucide-react';
 
 const SYSTEM_PAGE_LABELS: Record<string, string> = {
   index: 'Home',
@@ -121,36 +120,6 @@ export default function SiteEditor() {
     setEditingName(false);
   }
 
-  async function handleGenerateHero() {
-    if (!site || !tpl) return;
-    const heroSlot =
-      tpl.imageSlots?.find((s) => /hero/i.test(s.key) || /hero/i.test(s.label)) ??
-      tpl.imageSlots?.[0];
-    if (!heroSlot) {
-      toast.error('This template has no image slots.');
-      return;
-    }
-    setBusy(true);
-    const tId = toast.loading(`Generating mountain scene for "${heroSlot.label}"…`);
-    try {
-      const { image, error } = await generateSiteImage(site.id, {
-        prompt:
-          'Cinematic mountain landscape at golden hour, dramatic snow-capped peaks, soft mist in the valley, high-resolution photograph, wide aspect, no text',
-        alt: 'Mountain landscape',
-        slot: heroSlot.key,
-      });
-      if (error || !image) {
-        toast.error(error ?? 'Image generation failed', { id: tId });
-        return;
-      }
-      const imgs = await listSiteImages(site.id);
-      setImages(imgs);
-      toast.success(`Added to "${heroSlot.label}"`, { id: tId });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleExport() {
     if (!site || !tpl) return;
     setBusy(true);
@@ -242,13 +211,9 @@ export default function SiteEditor() {
           </SelectContent>
         </Select>
 
-        <Button onClick={handleGenerateHero} disabled={busy} size="sm" variant="outline">
-          <Sparkles className="h-4 w-4" />
-          Generate hero image
-        </Button>
         <Button onClick={handleExport} disabled={busy} size="sm">
           <Download className="h-4 w-4" />
-          {busy ? 'Working…' : 'Export theme'}
+          {busy ? 'Building zip…' : 'Export theme'}
         </Button>
       </div>
 
