@@ -46,6 +46,7 @@ import {
 import { MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { SitePreview } from '@/components/SitePreview';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -223,12 +224,7 @@ function SiteCard({
   return (
     <Card className="group overflow-hidden transition-shadow hover:shadow-md">
       <button onClick={onOpen} className="block w-full cursor-pointer text-left">
-        <div className="flex aspect-[16/10] items-center justify-center bg-gradient-to-br from-primary/10 via-primary/5 to-accent/10">
-          <div className="text-center">
-            <div className="font-serif text-2xl font-semibold text-foreground">{site.brandName}</div>
-            <div className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">{tpl.label}</div>
-          </div>
-        </div>
+        <SitePreview site={site} />
       </button>
       <div className="flex items-start justify-between gap-2 p-4">
         <div className="min-w-0 flex-1">
