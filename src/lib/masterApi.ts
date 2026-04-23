@@ -10,17 +10,14 @@
  *   - VITE_THIN_CLIENT_APP_TOKEN  shared secret matching the master's
  *                                  THIN_CLIENT_APP_TOKEN env var
  */
-const MASTER_URL = import.meta.env.VITE_MASTER_SUPABASE_URL as string | undefined;
-const APP_TOKEN = import.meta.env.VITE_THIN_CLIENT_APP_TOKEN as string | undefined;
+const MASTER_URL = 'https://iqxcgazfrydubrvxmnlv.supabase.co';
+const APP_TOKEN = 'tca_live_4f8d9c1a7b2e6f30c5a91d7e8b4f2c6a9e1d3b7f5c8a2e6d';
 
 export function masterConfigured(): boolean {
-  return !!MASTER_URL && !!APP_TOKEN;
+  return true;
 }
 
 export function masterFunctionUrl(name: string): string {
-  if (!MASTER_URL) {
-    throw new Error('VITE_MASTER_SUPABASE_URL is not configured');
-  }
   return `${MASTER_URL.replace(/\/$/, '')}/functions/v1/${name}`;
 }
 
@@ -32,9 +29,6 @@ export async function callMaster<T = unknown>(
   fn: 'generate-site-image' | 'firecrawl-scrape',
   body: Record<string, unknown>,
 ): Promise<T> {
-  if (!APP_TOKEN) {
-    throw new Error('VITE_THIN_CLIENT_APP_TOKEN is not configured');
-  }
   const res = await fetch(masterFunctionUrl(fn), {
     method: 'POST',
     headers: {
