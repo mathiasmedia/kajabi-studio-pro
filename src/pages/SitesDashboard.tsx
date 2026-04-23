@@ -217,7 +217,6 @@ function SiteCard({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
-  const tpl = getTemplate(site.templateId);
   const pageCount = enabledPageCount(site);
 
   return (
