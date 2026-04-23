@@ -3,7 +3,7 @@
 export interface AssetUsageReference {
   sectionId: string;
   blockId: string;
-  settingKey: string; // e.g. 'image', 'background_image'
+  settingKey: string;
 }
 
 export interface ProjectAsset {
@@ -12,8 +12,8 @@ export interface ProjectAsset {
   originalFileName: string;
   mimeType: string;
   size: number;
-  storagePath: string; // path in storage bucket
-  previewUrl: string;  // public URL for preview
+  storagePath: string;
+  previewUrl: string;
   createdAt: string;
   usages: AssetUsageReference[];
 }

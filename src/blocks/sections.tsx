@@ -1,26 +1,10 @@
 /**
  * Section wrappers — HeaderSection, ContentSection, FooterSection
- *
- * Each is a React component that:
- * 1. Renders its children inside a styled container (preview)
- * 2. Carries static metadata (__kajabiSectionFlavor, __allowedBlockTypes)
- *    used by the tree walker to assemble Kajabi JSON
- *
- * Allowed block types per flavor:
- * - header: logo, menu, dropdown, user, social_icons, link_list, cta
- * - content: text, cta, code, feature, image, pricing_card, social_icons,
- *            accordion, video_embed
- * - footer: copyright, logo, social_icons
  */
 import { Children, Fragment, cloneElement, isValidElement, type ReactElement, type ReactNode, type CSSProperties } from 'react';
 import type { BlockComponent, SectionLayoutProps } from './types';
 import type { SectionComponent } from './serialize';
 
-/**
- * Read the Kajabi column width (1-12) for a block child. Mirrors
- * `snippets/block.liquid` which wraps each block in `<div class="col-md-{width}">`.
- * Falls back to the block's serialize() output, then to '12' for safety.
- */
 function getBlockColWidth(child: ReactElement): string {
   const props = (child.props ?? {}) as Record<string, unknown>;
   if (typeof props.width === 'string' && props.width) return props.width;
@@ -31,7 +15,7 @@ function getBlockColWidth(child: ReactElement): string {
       const s = ChildType.serialize(props);
       if (s && typeof s.width === 'string' && s.width) return s.width;
     } catch {
-      // ignore — preview-only fallback
+      // ignore
     }
   }
   return '12';
@@ -45,46 +29,16 @@ function isBlockChild(child: ReactNode): child is ReactElement {
   );
 }
 
-/**
- * Wrap content-section children in a Bootstrap-style `.row` with each block
- * inside `<div class="col-md-{width}">`. Mirrors the Kajabi
- * `snippets/block.liquid` markup so multi-column layouts (features, cards,
- * pricing) reflow correctly in the live preview iframe.
- *
- * Non-block children (raw JSX) are passed through unwrapped to avoid
- * disrupting any caller that injects layout helpers directly.
- */
 function wrapContentChildren(children: ReactNode): ReactNode {
   const wrapped: ReactNode[] = [];
   const counter = { i: 0 };
-
-  // Kajabi's Bootstrap row gutter is ~30px total (15px each side). We use a
-  // flex `gap` for both row + column gutters and subtract it from the column
-  // basis so 2×col-6 / 3×col-4 / 4×col-3 still tile without overflow.
-  const COL_GAP = 0;
+  const COL_PADDING = 15;
   const ROW_GAP = 28;
+  const cols: Array<{ w: number; node: ReactNode; key: string }> = [];
 
   function pushCol(width: string, content: ReactNode) {
     const w = Number(width) || 12;
-    const basis = `calc(${(w / 12) * 100}% - ${COL_GAP}px)`;
-    wrapped.push(
-      <div
-        key={`col-${counter.i++}`}
-        className={`col-md-${w}`}
-        style={{
-          flex: `0 0 ${basis}`,
-          maxWidth: basis,
-          // Center each column horizontally when it's narrower than full row.
-          // Kajabi adds mx-auto via Bootstrap; we replicate it with margin auto
-          // so single-block rows (e.g. a width=8 accordion) center like Kajabi.
-          marginLeft: w < 12 ? 'auto' : undefined,
-          marginRight: w < 12 ? 'auto' : undefined,
-          boxSizing: 'border-box',
-        }}
-      >
-        {content}
-      </div>,
-    );
+    cols.push({ w, node: content, key: `col-${counter.i++}` });
   }
 
   function visit(node: ReactNode) {
@@ -112,6 +66,29 @@ function wrapContentChildren(children: ReactNode): ReactNode {
   }
 
   visit(children);
+
+  const isSingleSubFull = cols.length === 1 && cols[0].w < 12;
+  for (const c of cols) {
+    const basis = `${(c.w / 12) * 100}%`;
+    wrapped.push(
+      <div
+        key={c.key}
+        className={`col-md-${c.w}`}
+        style={{
+          flex: `0 0 ${basis}`,
+          maxWidth: basis,
+          paddingLeft: `${COL_PADDING}px`,
+          paddingRight: `${COL_PADDING}px`,
+          marginLeft: isSingleSubFull ? 'auto' : undefined,
+          marginRight: isSingleSubFull ? 'auto' : undefined,
+          boxSizing: 'border-box',
+        }}
+      >
+        {c.node}
+      </div>,
+    );
+  }
+
   return (
     <div
       className="row"
@@ -120,7 +97,6 @@ function wrapContentChildren(children: ReactNode): ReactNode {
         flexWrap: 'wrap',
         justifyContent: 'center',
         alignItems: 'flex-start',
-        columnGap: `${COL_GAP}px`,
         rowGap: `${ROW_GAP}px`,
         margin: 0,
       }}
@@ -130,11 +106,6 @@ function wrapContentChildren(children: ReactNode): ReactNode {
   );
 }
 
-// ---- Allowed block type sets ----
-
-// Source of truth: {% schema %} blocks in
-// public/base-theme/streamlined-home.zip → sections/{header,footer,section}.liquid.
-// Header schema also allows 'dropdown', 'user', 'hello_bar' — not in our React lib yet.
 const HEADER_ALLOWED = new Set(['logo', 'menu', 'cta', 'social_icons']);
 const CONTENT_ALLOWED = new Set([
   'text', 'cta', 'code', 'feature', 'image',
@@ -142,8 +113,6 @@ const CONTENT_ALLOWED = new Set([
   'video', 'card', 'form', 'link_list',
 ]);
 const FOOTER_ALLOWED = new Set(['logo', 'link_list', 'copyright', 'social_icons']);
-
-// ---- Shared style builder for preview ----
 
 function buildSectionStyle(props: SectionLayoutProps): CSSProperties {
   const style: CSSProperties = {};
@@ -164,7 +133,6 @@ function buildSectionStyle(props: SectionLayoutProps): CSSProperties {
     style.paddingLeft = pd.left ? `${pd.left}px` : undefined;
   }
 
-  // Vertical alignment (content sections)
   if (props.vertical) {
     style.display = 'flex';
     style.flexDirection = 'column';
@@ -188,10 +156,6 @@ function innerStyle(props: SectionLayoutProps): CSSProperties {
   }
   return s;
 }
-
-// ---- HeaderSection ----
-
-type SectionProps = { children?: ReactNode } & SectionLayoutProps;
 
 export const HeaderSection: SectionComponent = (props) => {
   const base = buildSectionStyle(props);
@@ -227,8 +191,6 @@ export const HeaderSection: SectionComponent = (props) => {
 HeaderSection.__kajabiSectionFlavor = 'header';
 HeaderSection.__allowedBlockTypes = HEADER_ALLOWED;
 
-// ---- ContentSection ----
-
 export const ContentSection: SectionComponent = (props) => {
   return (
     <section style={buildSectionStyle(props)}>
@@ -238,8 +200,6 @@ export const ContentSection: SectionComponent = (props) => {
 };
 ContentSection.__kajabiSectionFlavor = 'content';
 ContentSection.__allowedBlockTypes = CONTENT_ALLOWED;
-
-// ---- FooterSection ----
 
 export const FooterSection: SectionComponent = (props) => {
   const inner: CSSProperties = {
