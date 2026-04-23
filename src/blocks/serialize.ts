@@ -1,22 +1,5 @@
 /**
  * Tree walker — converts a JSX <Section> tree into Kajabi settings_data.json.
- *
- * Usage:
- *   const data = serializeTree(
- *     <>
- *       <HeaderSection>...</HeaderSection>
- *       <ContentSection>...</ContentSection>
- *       <FooterSection>...</FooterSection>
- *     </>
- *   );
- *
- * The walker:
- * 1. Iterates children of the root fragment
- * 2. For each Section element, reads layout props → section.settings
- * 3. For each Block child, calls Block.serialize(props) → block.settings
- * 4. Generates stable IDs (header/footer fixed, content sections get unique ids)
- * 5. Assembles content_for_index (the homepage order)
- * 6. Returns { current: { sections: {...}, content_for_index: [...] } }
  */
 import { Children, Fragment, isValidElement, type ReactNode, type ReactElement } from 'react';
 import type {
@@ -30,9 +13,6 @@ import type {
 import { SECTION_FLAVOR_TO_KAJABI_TYPE } from './types';
 
 // ---- ID generation ----
-
-// Kajabi IDs are 13-digit numeric strings (millisecond timestamps).
-// We seed from Date.now() and increment to guarantee uniqueness within an export.
 let idCounter = 0;
 let idSeed = 0;
 
@@ -49,16 +29,33 @@ function nextSectionId(): string {
   return nextNumericId();
 }
 
-// ---- Section component marker ----
+// ---- External background-image override collection ----
+//
+// Kajabi's `bg_image` field is an `image_picker` — its value is run through
+// the `image_picker_url` Liquid filter, which assumes an internal Kajabi
+// asset id. When we save an external URL straight into `bg_image`, that
+// filter mangles the URL into a broken proxy URL. Workaround: keep
+// `bg_type: 'image'` so section.liquid still renders the overlay + sizing
+// branch, but blank `bg_image` and inject a real CSS rule into current.css.
+export interface SectionBackgroundOverride {
+  url: string;
+  position: string;
+  fixed: boolean;
+}
+let externalBgOverrides = new Map<string, SectionBackgroundOverride>();
 
-/**
- * Section components attach this marker via a static field so the
- * walker can identify them and read their flavor.
- */
+function isExternalImageUrl(url: string): boolean {
+  if (!url) return false;
+  if (/^\d+$/.test(url)) return false;
+  if (url.startsWith('assets/')) return false;
+  if (/^https?:\/\/[^/]*kajabi(-cdn)?\.com\//i.test(url)) return false;
+  return /^(https?:|data:|blob:)/i.test(url);
+}
+
+// ---- Section component marker ----
 export interface SectionComponent {
   (props: { children?: ReactNode } & SectionLayoutProps): JSX.Element | null;
   __kajabiSectionFlavor: SectionFlavor;
-  /** Set of allowed kajabi block types for runtime validation */
   __allowedBlockTypes: Set<string>;
 }
 
@@ -74,11 +71,6 @@ function paddingToKajabi(p?: PaddingObject): Record<string, string> | undefined 
   };
 }
 
-/**
- * Section-level defaults required by `sections/section.liquid`.
- * Missing any of these can cause sections to render as empty containers
- * because the template references them unconditionally.
- */
 const SECTION_DEFAULTS: Record<string, unknown> = {
   bg_type: 'none',
   bg_image: '',
@@ -91,8 +83,6 @@ const SECTION_DEFAULTS: Record<string, unknown> = {
   full_width: 'false',
   full_height: 'false',
   equal_height: 'false',
-  // NOTE: reveal_event/reveal_units/reveal_offset are block-level fields in the
-  // Kajabi schema validator; they must NOT appear in section settings.
   hide_on_mobile: 'false',
   hide_on_desktop: 'false',
   padding_desktop: { top: '', right: '', bottom: '', left: '' },
@@ -102,12 +92,23 @@ const SECTION_DEFAULTS: Record<string, unknown> = {
 function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor): Record<string, unknown> {
   const settings: Record<string, unknown> = { ...SECTION_DEFAULTS };
 
-  // ---- Common: background ----
-  if (layout.bgType) {
-    settings.bg_type = layout.bgType;
-  } else if (layout.backgroundVideo) {
+  // ---- Background w/ safety-net demotion ----
+  const hasImgUrl = typeof layout.backgroundImage === 'string' && layout.backgroundImage.length > 0;
+  const hasVidUrl = typeof layout.backgroundVideo === 'string' && layout.backgroundVideo.length > 0;
+  let effectiveBgType = layout.bgType;
+  if (effectiveBgType === 'image' && !hasImgUrl) {
+    console.warn('[serialize] bgType="image" with no backgroundImage — demoting to color');
+    effectiveBgType = undefined;
+  }
+  if (effectiveBgType === 'video' && !hasVidUrl) {
+    console.warn('[serialize] bgType="video" with no backgroundVideo — demoting to color');
+    effectiveBgType = undefined;
+  }
+  if (effectiveBgType) {
+    settings.bg_type = effectiveBgType;
+  } else if (hasVidUrl) {
     settings.bg_type = 'video';
-  } else if (layout.backgroundImage) {
+  } else if (hasImgUrl) {
     settings.bg_type = 'image';
   } else if (layout.background) {
     settings.bg_type = 'color';
@@ -119,7 +120,6 @@ function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor)
   if (layout.background) settings.background_color = layout.background;
   if (layout.textColor) settings.text_color = layout.textColor;
 
-  // ---- Common: layout ----
   if (layout.maxWidth != null) settings.max_width = String(layout.maxWidth);
   if (layout.hideOnMobile) settings.hide_on_mobile = 'true';
   if (layout.hideOnDesktop) settings.hide_on_desktop = 'true';
@@ -129,7 +129,6 @@ function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor)
   if (pd) settings.padding_desktop = pd;
   if (pm) settings.padding_mobile = pm;
 
-  // ---- Content-only fields ----
   if (flavor === 'content') {
     if (layout.vertical) settings.vertical = layout.vertical;
     if (layout.horizontal) settings.horizontal = layout.horizontal;
@@ -138,7 +137,6 @@ function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor)
     if (layout.fullHeight) settings.full_height = 'true';
   }
 
-  // ---- Header-only fields ----
   if (flavor === 'header') {
     delete settings.bg_type;
     delete settings.bg_image;
@@ -167,7 +165,6 @@ function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor)
     if (layout.mobileMenuTextAlignment) settings.mobile_menu_text_alignment = layout.mobileMenuTextAlignment;
   }
 
-  // ---- Footer-only fields ----
   if (flavor === 'footer') {
     delete settings.bg_type;
     delete settings.bg_image;
@@ -190,8 +187,6 @@ function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor)
   return settings;
 }
 
-// ---- Content-grid field stripper (for header/footer blocks) ----
-
 const CONTENT_GRID_ONLY_FIELDS = [
   'width', 'text_align', 'box_shadow', 'animation_type', 'animation_direction',
   'delay', 'duration', 'hide_on_desktop', 'hide_on_mobile', 'make_block',
@@ -205,8 +200,6 @@ function stripContentGridFields(settings: Record<string, unknown>): Record<strin
   }
   return out;
 }
-
-// ---- Tree walking ----
 
 interface SerializedSection {
   id: string;
@@ -333,6 +326,7 @@ function walkSection(el: ReactElement): SerializedSection {
 
 export interface SerializeTreeResult {
   settingsData: Record<string, unknown>;
+  externalBackgrounds: Map<string, SectionBackgroundOverride>;
 }
 
 export type PageTrees = Record<string, ReactNode>;
@@ -341,6 +335,7 @@ export const SYSTEM_TEMPLATES = [
   'index', 'about', 'page', 'contact', 'blog', 'blog_post', 'thank_you', '404',
   'library', 'store', 'login', 'member_directory', 'announcements',
   'newsletter', 'newsletter_post', 'newsletter_subscribe', 'blog_search',
+  'forgot_password', 'forgot_password_edit', 'sales_page',
 ] as const;
 export type SystemTemplate = typeof SYSTEM_TEMPLATES[number];
 
@@ -367,6 +362,7 @@ function isPageTreesMap(input: ReactNode | PageTrees): input is PageTrees {
 export function serializeTree(input: ReactNode | PageTrees): SerializeTreeResult {
   idCounter = 0;
   idSeed = Date.now();
+  externalBgOverrides = new Map();
 
   const sections: Record<string, KajabiSection> = {};
   const contentForByTemplate: Record<string, string[]> = {};
@@ -428,10 +424,20 @@ export function serializeTree(input: ReactNode | PageTrees): SerializeTreeResult
     ? (input as PageTrees)
     : { index: input as ReactNode };
 
+  const NON_COMPOSABLE_TEMPLATES = new Set([
+    'forgot_password', 'forgot_password_edit', 'sales_page',
+  ]);
+
   for (const [templateName, tree] of Object.entries(trees)) {
     if (!VALID_TEMPLATE_NAME.test(templateName) && templateName !== '404') {
       console.warn(
         `[serialize] Invalid template name "${templateName}" — must match ${VALID_TEMPLATE_NAME}. Skipping.`,
+      );
+      continue;
+    }
+    if (NON_COMPOSABLE_TEMPLATES.has(templateName)) {
+      console.warn(
+        `[serialize] Skipping "${templateName}" — Kajabi auth/checkout templates can't be composed; their built-in Liquid is preserved.`,
       );
       continue;
     }
@@ -451,5 +457,6 @@ export function serializeTree(input: ReactNode | PageTrees): SerializeTreeResult
         ...contentForByTemplate,
       },
     },
+    externalBackgrounds: externalBgOverrides,
   };
 }

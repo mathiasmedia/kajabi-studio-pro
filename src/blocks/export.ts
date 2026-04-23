@@ -1,23 +1,13 @@
 /**
  * Component-tree export pipeline.
- *
- * Pipeline:
- *   1. serializeTree(tree) → settings_data.json shape
- *   2. (optional) inject font + type-scale CSS from tree.global into current.css
- *   3. exportThemeZip(...) → merges into base streamlined-home zip
  */
 import type { ReactNode } from 'react';
-import { serializeTree, type PageTrees } from './serialize';
+import { serializeTree, type PageTrees, type SectionBackgroundOverride } from './serialize';
 import { exportThemeZip } from '@/engines/exportEngine';
 import type { ProjectAsset } from '@/types/assets';
 import { resolveFont, buildFontCssBlock } from '@/engines/fontStrategy';
 import { buildTypeScaleCssBlock, stripTypeScaleCssBlock, type TypeScale } from '@/engines/typeScaleStrategy';
 
-/**
- * Optional page-wide settings injected into Kajabi's global current.css.
- * Inlined here so the kit has zero dependencies outside @/blocks, @/engines,
- * and @/types.
- */
 export interface TypeSlotSizes {
   desktop?: number;
   mobile?: number;
@@ -33,25 +23,12 @@ export interface TreeGlobal {
 }
 
 export interface ExportFromTreeOptions {
-  /** Project assets to bundle into the zip (images, etc.) */
   assets?: ProjectAsset[];
-  /** Optional global overrides (fonts + type scale). */
   global?: TreeGlobal;
-  /**
-   * Top-level Kajabi theme settings (color_primary, font_family_heading, etc.)
-   * to merge into settings_data.current. Validated against
-   * `templateSettingsCatalog.ts` — unknown keys dropped with a warning.
-   */
   themeSettings?: Record<string, string>;
-  /**
-   * Custom CSS appended to the `css` setting field after any auto-generated
-   * font / type-scale blocks. Used to brand Kajabi system pages (login,
-   * store, checkout) that we don't render ourselves.
-   */
   customCss?: string;
 }
 
-/** Strip any prior PathX font block so re-injection doesn't stack duplicates. */
 function stripFontCssBlock(css: string): string {
   return css.replace(
     /\/\* === PathX font overrides[\s\S]*?\/\* === end PathX font overrides === \*\//g,
@@ -59,42 +36,68 @@ function stripFontCssBlock(css: string): string {
   );
 }
 
-/**
- * Inject auto-generated font + type-scale CSS into settings_data.current.css.
- * Preserves any pre-existing user CSS by appending after a separator. Re-runs
- * are idempotent — old auto-generated blocks are stripped before appending.
- */
+function buildExternalBgCssBlock(
+  overrides: Map<string, SectionBackgroundOverride> | undefined,
+): string {
+  if (!overrides || overrides.size === 0) return '';
+  const rules: string[] = [];
+  for (const [sectionId, ovr] of overrides) {
+    rules.push(
+      `#section-${sectionId} {`,
+      `  background-image: url("${ovr.url}") !important;`,
+      `  background-size: cover;`,
+      `  background-position: ${ovr.position};`,
+      ovr.fixed ? `  background-attachment: fixed;` : '',
+      `}`,
+    );
+  }
+  return [
+    '/* === external section backgrounds === */',
+    rules.filter(Boolean).join('\n'),
+    '/* === end external section backgrounds === */',
+  ].join('\n');
+}
+
+function stripExternalBgCssBlock(css: string): string {
+  return css.replace(
+    /\/\* === external section backgrounds ===[\s\S]*?\/\* === end external section backgrounds === \*\//g,
+    '',
+  );
+}
+
 export function injectGlobalCss(
   settingsData: Record<string, unknown>,
   global: TreeGlobal | undefined,
+  externalBackgrounds?: Map<string, SectionBackgroundOverride>,
 ): Record<string, unknown> {
   const hasFontImports = Array.isArray(global?.fontImports) && global!.fontImports!.length > 0;
-  if (!global || (!global.headingFont && !global.bodyFont && !global.typeScale && !hasFontImports)) {
-    return settingsData;
-  }
+  const hasGlobal = !!(global && (global.headingFont || global.bodyFont || global.typeScale || hasFontImports));
+  const hasBgOverrides = !!externalBackgrounds && externalBackgrounds.size > 0;
+  if (!hasGlobal && !hasBgOverrides) return settingsData;
 
-  // Font block — also includes any per-block @import URLs added by setBlockFont.
   let fontBlock = '';
-  if (global.headingFont || global.bodyFont || hasFontImports) {
-    const heading = resolveFont(global.headingFont);
-    const body = resolveFont(global.bodyFont);
+  if (hasGlobal && (global!.headingFont || global!.bodyFont || hasFontImports)) {
+    const heading = resolveFont(global!.headingFont);
+    const body = resolveFont(global!.bodyFont);
     fontBlock = buildFontCssBlock({
       heading,
       body,
-      extraImports: global.fontImports ?? [],
+      extraImports: global!.fontImports ?? [],
     });
   }
 
-  // Type-scale block
-  const scaleBlock = buildTypeScaleCssBlock(global.typeScale as TypeScale | undefined);
+  const scaleBlock = hasGlobal ? buildTypeScaleCssBlock(global!.typeScale as TypeScale | undefined) : '';
+  const bgBlock = buildExternalBgCssBlock(externalBackgrounds);
 
-  if (!fontBlock && !scaleBlock) return settingsData;
+  if (!fontBlock && !scaleBlock && !bgBlock) return settingsData;
 
   const root = (settingsData ?? {}) as { current?: Record<string, unknown> };
   const current = (root.current ?? {}) as Record<string, unknown>;
   const existingCss = typeof current.css === 'string' ? current.css : '';
-  const cleanExisting = stripTypeScaleCssBlock(stripFontCssBlock(existingCss)).trim();
-  const merged = [cleanExisting, fontBlock, scaleBlock]
+  const cleanExisting = stripExternalBgCssBlock(
+    stripTypeScaleCssBlock(stripFontCssBlock(existingCss)),
+  ).trim();
+  const merged = [cleanExisting, fontBlock, scaleBlock, bgBlock]
     .filter((s) => s && s.length > 0)
     .join('\n\n');
 
@@ -104,44 +107,18 @@ export function injectGlobalCss(
   };
 }
 
-/**
- * Legacy alias kept for backwards compatibility — now also injects the
- * type-scale block when present on `global`.
- */
 export const injectFontCss = injectGlobalCss;
 
-/**
- * Build a downloadable Kajabi theme zip from a JSX component tree, OR from
- * a multi-page map keyed by Kajabi template name.
- *
- * Single-page (homepage only):
- *   exportFromTree(<><HeaderSection/>...<FooterSection/></>);
- *
- * Multi-page:
- *   exportFromTree({
- *     index: <IndexPage/>,
- *     about: <AboutPage/>,
- *     contact: <ContactPage/>,
- *   });
- *
- * Header / Footer are shared site-wide. Define them in any one tree (or
- * repeat them — last definition wins).
- */
 export async function exportFromTree(
   tree: ReactNode | PageTrees,
   opts: ExportFromTreeOptions = {},
 ): Promise<Blob> {
-  const { settingsData } = serializeTree(tree);
-  const withFonts = injectGlobalCss(settingsData, opts.global);
+  const { settingsData, externalBackgrounds } = serializeTree(tree);
+  const withFonts = injectGlobalCss(settingsData, opts.global, externalBackgrounds);
   const withTheme = mergeThemeSettings(withFonts, opts.themeSettings, opts.customCss);
   return exportThemeZip(withTheme, opts.assets ?? []);
 }
 
-/**
- * Merge template-declared themeSettings into `current` and append customCss
- * to `current.css`. Both are optional — when neither is provided the input
- * is returned unchanged.
- */
 function mergeThemeSettings(
   settingsData: Record<string, unknown>,
   themeSettings: Record<string, string> | undefined,
@@ -160,7 +137,6 @@ function mergeThemeSettings(
   if (customCss && customCss.trim()) {
     const existing = typeof current.css === 'string' ? current.css : '';
     const block = `/* === template customCss === */\n${customCss.trim()}\n/* === end template customCss === */`;
-    // Strip any prior template customCss block so re-runs are idempotent
     const cleaned = existing.replace(
       /\/\* === template customCss ===[\s\S]*?\/\* === end template customCss === \*\//g,
       '',
@@ -171,9 +147,6 @@ function mergeThemeSettings(
   return { ...settingsData, current };
 }
 
-/**
- * Trigger a browser download of a Blob with the given filename.
- */
 export function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
