@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
 import { useToast } from '@/hooks/use-toast';
 import { Layers } from 'lucide-react';
 
@@ -19,7 +19,7 @@ export default function Auth() {
   const { session, loading } = useAuth();
   const { toast } = useToast();
 
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const mode = 'signin' as const;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -105,23 +105,10 @@ export default function Auth() {
         </div>
 
         <Card className="p-6">
-          <Tabs value={mode} onValueChange={(v) => setMode(v as 'signin' | 'signup')}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign in</TabsTrigger>
-              <TabsTrigger value="signup">Sign up</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="signin" className="mt-4">
-              <p className="text-sm text-muted-foreground">
-                Welcome back — sign in to access your sites.
-              </p>
-            </TabsContent>
-            <TabsContent value="signup" className="mt-4">
-              <p className="text-sm text-muted-foreground">
-                Create an account to start building. We'll email you a verification link.
-              </p>
-            </TabsContent>
-          </Tabs>
+          <h2 className="text-base font-semibold">Sign in</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Welcome back — sign in to access your sites.
+          </p>
 
           <form onSubmit={handleEmail} className="mt-5 flex flex-col gap-4">
             <div className="flex flex-col gap-2">
