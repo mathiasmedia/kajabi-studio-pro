@@ -1,6 +1,6 @@
 /**
  * Sites Dashboard — list, create, rename, duplicate, delete sites.
- * Thin-client version: no auth, sites stored in localStorage.
+ * Stored entirely in localStorage via siteStore.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +13,7 @@ import {
   enabledPageCount,
   type Site,
 } from '@/lib/siteStore';
+import { SitePreview } from '@/components/SitePreview';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -42,10 +43,11 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { MoreVertical, Plus, FileText, Copy, Check } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { SitePreview } from '@/components/SitePreview';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { AppHeader } from '@/components/AppHeader';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -60,18 +62,12 @@ function timeAgo(iso: string): string {
 
 export default function SitesDashboard() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
-  const { toast } = useToast();
+  const { user, isAdmin } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
+  const [owners, setOwners] = useState<Record<string, string>>({});
   const [createOpen, setCreateOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Site | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
-
-  async function handleSignOut() {
-    await signOut();
-    toast({ title: 'Signed out' });
-    navigate('/auth', { replace: true });
-  }
 
   async function refresh() {
     setSites(await listSites());
@@ -80,6 +76,54 @@ export default function SitesDashboard() {
   useEffect(() => {
     refresh();
   }, []);
+
+  // Realtime: refresh the dashboard whenever any site row changes (insert,
+  // update, delete) or any site image changes — so AI/edge-function edits in
+  // an open editor tab show up here without a manual reload.
+  useEffect(() => {
+    const channel = supabase
+      .channel('sites-dashboard')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sites' },
+        () => { refresh(); },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_images' },
+        () => { refresh(); },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // When admin, look up owner emails for the visible sites.
+  useEffect(() => {
+    if (!isAdmin || sites.length === 0) {
+      setOwners({});
+      return;
+    }
+    const userIds = Array.from(new Set(sites.map((s) => s.userId).filter(Boolean)));
+    if (userIds.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.functions.invoke('admin-list-site-owners', {
+        body: { userIds },
+      });
+      if (cancelled) return;
+      if (error) {
+        console.error('[dashboard] failed to load owner emails:', error);
+        return;
+      }
+      const map = (data?.owners ?? {}) as Record<string, string>;
+      setOwners(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, sites]);
 
   async function handleCreate(name: string) {
     const site = await createSite({ name, brandName: name });
@@ -108,48 +152,34 @@ export default function SitesDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Layers className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Pro</h1>
-              <p className="text-xs text-muted-foreground">Build, save, and export Kajabi themes.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {user?.email && (
-              <span className="hidden text-sm text-muted-foreground sm:inline" title={user.email}>
-                {user.email}
-              </span>
-            )}
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" /> New site
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> New site
+          </Button>
+        }
+      />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {sites.length === 0 ? (
           <EmptyState onCreate={() => setCreateOpen(true)} />
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {sites.map((site) => (
-              <SiteCard
-                key={site.id}
-                site={site}
-                onOpen={() => navigate(`/sites/${site.id}`)}
-                onRename={() => setRenameTarget(site)}
-                onDuplicate={() => handleDuplicate(site.id)}
-                onDelete={() => setDeleteTarget(site)}
-              />
-            ))}
+            {sites.map((site) => {
+              const isOwn = site.userId === user?.id;
+              return (
+                <SiteCard
+                  key={site.id}
+                  site={site}
+                  ownerEmail={isAdmin && !isOwn ? owners[site.userId] : undefined}
+                  canModify={isOwn}
+                  onOpen={() => navigate(`/sites/${site.id}`)}
+                  onRename={() => setRenameTarget(site)}
+                  onDuplicate={() => handleDuplicate(site.id)}
+                  onDelete={() => setDeleteTarget(site)}
+                />
+              );
+            })}
           </div>
         )}
       </main>
@@ -185,6 +215,8 @@ export default function SitesDashboard() {
   );
 }
 
+// ---------- pieces ----------
+
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <Card className="flex flex-col items-center justify-center gap-4 border-dashed py-20 text-center">
@@ -206,12 +238,16 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 function SiteCard({
   site,
+  ownerEmail,
+  canModify,
   onOpen,
   onRename,
   onDuplicate,
   onDelete,
 }: {
   site: Site;
+  ownerEmail?: string;
+  canModify: boolean;
   onOpen: () => void;
   onRename: () => void;
   onDuplicate: () => void;
@@ -221,7 +257,10 @@ function SiteCard({
 
   return (
     <Card className="group overflow-hidden transition-shadow hover:shadow-md">
-      <button onClick={onOpen} className="block w-full cursor-pointer text-left">
+      <button
+        onClick={onOpen}
+        className="block w-full cursor-pointer text-left"
+      >
         <SitePreview site={site} />
       </button>
       <div className="flex items-start justify-between gap-2 p-4">
@@ -235,6 +274,11 @@ function SiteCard({
           <p className="mt-0.5 text-xs text-muted-foreground">
             {pageCount} {pageCount === 1 ? 'page' : 'pages'} · Updated {timeAgo(site.updatedAt)}
           </p>
+          {ownerEmail && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={ownerEmail}>
+              Owner: <span className="font-medium text-foreground/80">{ownerEmail}</span>
+            </p>
+          )}
           <CopyIdButton id={site.id} />
         </div>
         <DropdownMenu>
@@ -245,12 +289,14 @@ function SiteCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={onOpen}>Open</DropdownMenuItem>
-            <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
-            <DropdownMenuItem onClick={onDuplicate}>Duplicate</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-              Delete
-            </DropdownMenuItem>
+            {canModify && <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>}
+            {canModify && <DropdownMenuItem onClick={onDuplicate}>Duplicate</DropdownMenuItem>}
+            {canModify && <DropdownMenuSeparator />}
+            {canModify && (
+              <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                Delete
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -309,24 +355,28 @@ function CreateSiteDialog({
           <DialogTitle>Create a new site</DialogTitle>
           <DialogDescription>Give your new site a name to get started.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-2 py-2">
-          <Label htmlFor="site-name">Site name</Label>
-          <Input
-            id="site-name"
-            autoFocus
-            placeholder="e.g. Acme Co"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && name.trim()) onCreate(name.trim());
-            }}
-          />
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="site-name">Site name</Label>
+            <Input
+              id="site-name"
+              autoFocus
+              placeholder="e.g. Acme Co"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim()) onCreate(name.trim());
+              }}
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => onCreate(name.trim() || 'Untitled site')}>Create site</Button>
+          <Button onClick={() => onCreate(name.trim() || 'Untitled site')}>
+            Create site
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
