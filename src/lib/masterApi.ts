@@ -29,9 +29,6 @@ export async function callMaster<T = unknown>(
   fn: 'generate-site-image' | 'firecrawl-scrape',
   body: Record<string, unknown>,
 ): Promise<T> {
-  if (!APP_TOKEN) {
-    throw new Error('VITE_THIN_CLIENT_APP_TOKEN is not configured');
-  }
   const res = await fetch(masterFunctionUrl(fn), {
     method: 'POST',
     headers: {
