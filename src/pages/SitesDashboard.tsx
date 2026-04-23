@@ -14,7 +14,7 @@ import {
   type Site,
   type TemplateId,
 } from '@/lib/siteStore';
-import { listTemplates, getTemplate } from '@/lib/templates';
+import { getTemplate } from '@/lib/templates';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -82,8 +82,8 @@ export default function SitesDashboard() {
     refresh();
   }, []);
 
-  async function handleCreate(name: string, templateId: TemplateId) {
-    const site = await createSite({ name, templateId, brandName: name });
+  async function handleCreate(name: string) {
+    const site = await createSite({ name, templateId: 'blank', brandName: name });
     if (!site) return;
     await refresh();
     setCreateOpen(false);
@@ -301,16 +301,12 @@ function CreateSiteDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (name: string, templateId: TemplateId) => void;
+  onCreate: (name: string) => void;
 }) {
   const [name, setName] = useState('');
-  const [templateId, setTemplateId] = useState<TemplateId>('pixel-perfect');
 
   useEffect(() => {
-    if (open) {
-      setName('');
-      setTemplateId('pixel-perfect');
-    }
+    if (open) setName('');
   }, [open]);
 
   return (
@@ -318,53 +314,26 @@ function CreateSiteDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create a new site</DialogTitle>
-          <DialogDescription>Pick a template and give your site a name.</DialogDescription>
+          <DialogDescription>Give your new site a name to get started.</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-4 py-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="site-name">Site name</Label>
-            <Input
-              id="site-name"
-              autoFocus
-              placeholder="e.g. Acme Co"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim()) onCreate(name.trim(), templateId);
-              }}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label>Template</Label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {listTemplates().map((t) => {
-                const selected = t.id === templateId;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTemplateId(t.id)}
-                    className={`rounded-md border p-3 text-left transition-colors ${
-                      selected
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/40'
-                    }`}
-                  >
-                    <div className="font-medium">{t.label}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{t.description}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <div className="flex flex-col gap-2 py-2">
+          <Label htmlFor="site-name">Site name</Label>
+          <Input
+            id="site-name"
+            autoFocus
+            placeholder="e.g. Acme Co"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && name.trim()) onCreate(name.trim());
+            }}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => onCreate(name.trim() || 'Untitled site', templateId)}>
-            Create site
-          </Button>
+          <Button onClick={() => onCreate(name.trim() || 'Untitled site')}>Create site</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
