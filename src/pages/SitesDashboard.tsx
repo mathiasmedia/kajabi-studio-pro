@@ -109,16 +109,24 @@ export default function SitesDashboard() {
     if (userIds.length === 0) return;
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase.functions.invoke('admin-list-site-owners', {
-        body: { userIds },
-      });
-      if (cancelled) return;
-      if (error) {
-        console.error('[dashboard] failed to load owner emails:', error);
-        return;
+      try {
+        const { data, error } = await supabase.functions.invoke('admin-list-site-owners', {
+          body: { userIds },
+        });
+        if (cancelled) return;
+        if (error) {
+          // Non-fatal: owner emails are an admin nicety. Master may not have
+          // the function deployed, or it may be temporarily 500ing.
+          console.warn('[dashboard] owner emails unavailable:', error.message ?? error);
+          return;
+        }
+        const map = (data?.owners ?? {}) as Record<string, string>;
+        setOwners(map);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[dashboard] owner emails unavailable:', err);
+        }
       }
-      const map = (data?.owners ?? {}) as Record<string, string>;
-      setOwners(map);
     })();
     return () => {
       cancelled = true;
