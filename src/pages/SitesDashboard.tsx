@@ -117,7 +117,7 @@ export default function SitesDashboard() {
             </div>
             <div>
               <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Pro</h1>
-              <p className="text-xs text-muted-foreground">Cloud-synced sites · AI &amp; scraping built in.</p>
+              <p className="text-xs text-muted-foreground">Build, save, and export Kajabi themes.</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
