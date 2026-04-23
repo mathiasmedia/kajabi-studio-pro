@@ -12,7 +12,6 @@ import {
   updateSite,
   enabledPageCount,
   type Site,
-  type TemplateId,
 } from '@/lib/siteStore';
 import { getTemplate } from '@/lib/templates';
 import { Button } from '@/components/ui/button';
