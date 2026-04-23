@@ -1,13 +1,10 @@
 /**
  * Site Editor — single-site preview + multi-page tab switcher + export.
- *
- * Reads the site by `:siteId` from the database, renders pages from
- * `site.design` JSON via the SiteDesign renderer, and exports the whole
- * multi-page tree as a Kajabi zip.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { exportFromTree, triggerDownload } from '@/blocks';
+import { supabase } from '@/integrations/supabase/client';
 import {
   getSite,
   updateSite,
@@ -38,7 +35,6 @@ const SYSTEM_PAGE_LABELS: Record<string, string> = {
   '404': '404',
 };
 
-/** Friendly tab label for any system or custom page key. */
 function pageLabel(key: PageKey): string {
   if (SYSTEM_PAGE_LABELS[key]) return SYSTEM_PAGE_LABELS[key];
   return key
@@ -82,20 +78,46 @@ export default function SiteEditor() {
     };
   }, [siteId, navigate]);
 
+  // Realtime: when this site's row OR its site_images change, refetch.
+  useEffect(() => {
+    if (!siteId) return;
+    const channel = supabase
+      .channel(`site-editor-${siteId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'sites', filter: `id=eq.${siteId}` },
+        async () => {
+          const fresh = await getSite(siteId);
+          if (fresh) setSite(fresh);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_images', filter: `site_id=eq.${siteId}` },
+        async () => {
+          const imgs = await listSiteImages(siteId);
+          setImages(imgs);
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [siteId]);
+
   const slotMap = useMemo(() => imagesBySlot(images), [images]);
   const pageKeys = site?.design?.pageKeys ?? [];
 
-  // Preview-time font loading: inject a single Google Fonts <link> for the
-  // design's declared fonts so the in-app iframe renders the same families
-  // the export will. Cleaned up on design change/unmount.
+  // Preview-time font loading: inject Google Fonts link + style rule that
+  // applies the families to the rendered preview tree.
   useEffect(() => {
     const fonts = site?.design?.fonts;
     if (!fonts) return;
     const families: string[] = [];
     const seen = new Set<string>();
+    const cleanName = (name?: string) => (name ? name.split(':')[0].trim() : '');
     const add = (name?: string) => {
-      if (!name) return;
-      const key = name.trim();
+      const key = cleanName(name);
       if (!key || seen.has(key.toLowerCase())) return;
       seen.add(key.toLowerCase());
       families.push(`${key.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`);
@@ -110,8 +132,24 @@ export default function SiteEditor() {
     link.href = href;
     if (site?.id) link.dataset.previewFonts = site.id;
     document.head.appendChild(link);
+
+    const style = document.createElement('style');
+    const headingName = cleanName(fonts.heading);
+    const bodyName = cleanName(fonts.body);
+    const headingStack = headingName ? `'${headingName}', Georgia, serif` : null;
+    const bodyStack = bodyName
+      ? `'${bodyName}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+      : null;
+    style.textContent = [
+      bodyStack ? `.preview-root, .preview-root * { font-family: ${bodyStack}; }` : '',
+      headingStack ? `.preview-root :is(h1,h2,h3,h4,h5,h6), .preview-root :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }` : '',
+    ].filter(Boolean).join('\n');
+    if (site?.id) style.dataset.previewFonts = site.id;
+    document.head.appendChild(style);
+
     return () => {
       link.remove();
+      style.remove();
     };
   }, [site?.design?.fonts, site?.id]);
 
@@ -175,7 +213,6 @@ export default function SiteEditor() {
 
   return (
     <div className="min-h-screen bg-muted/20">
-      {/* Sticky editor bar */}
       <div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
@@ -211,7 +248,6 @@ export default function SiteEditor() {
           </span>
         </div>
 
-        {/* Page selector */}
         <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
           <SelectTrigger className="h-9 w-56">
             <SelectValue placeholder="Select page" />
@@ -231,8 +267,7 @@ export default function SiteEditor() {
         </Button>
       </div>
 
-      {/* Preview */}
-      <div>
+      <div className="preview-root">
         {PreviewPage ?? (
           <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">
             This site has no design yet.
