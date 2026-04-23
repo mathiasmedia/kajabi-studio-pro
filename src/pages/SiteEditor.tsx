@@ -12,7 +12,7 @@ import {
   type Site,
 } from '@/lib/siteStore';
 import { getTemplate } from '@/lib/templates';
-import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
+import { listSiteImages, imagesBySlot, generateSiteImage, type SiteImage } from '@/lib/imageStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -22,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Download, Pencil } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 
 const SYSTEM_PAGE_LABELS: Record<string, string> = {
   index: 'Home',
