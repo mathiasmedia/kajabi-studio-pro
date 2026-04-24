@@ -1,11 +1,18 @@
 /**
  * Site store — Supabase-backed CRUD for the multi-site dashboard.
  * Talks to the master Supabase project via @/integrations/supabase/client.
+ *
+ * Supports two row kinds:
+ *   - 'site'         → multi-page Kajabi website (default)
+ *   - 'landing_page' → single-page conversion-focused export
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { SiteDesign } from './siteDesign/types';
 import { isSiteDesign } from './siteDesign/types';
 import { buildBlankDesign } from './siteDesign/blank';
+import { buildLandingPageBlankDesign } from './siteDesign/landingPageBlank';
+
+export type SiteKind = 'site' | 'landing_page';
 
 export type SystemPageKey =
   | 'index' | 'about' | 'page' | 'contact'
@@ -27,12 +34,18 @@ export interface Site {
   pages: Partial<Record<PageKey, { enabled: boolean }>>;
   userId: string;
   design: SiteDesign | null;
+  /** Top-level kind. Defaults to 'site' for legacy rows. */
+  kind: SiteKind;
+  /** URL-friendly slug — used by landing pages. */
+  slug: string | null;
 }
 
 function rowToSite(row: {
   id: string; name: string; template_id: string; brand_name: string;
   pages: unknown; design?: unknown; created_at: string; updated_at: string; user_id: string;
+  kind?: string | null; slug?: string | null;
 }): Site {
+  const kind: SiteKind = row.kind === 'landing_page' ? 'landing_page' : 'site';
   return {
     id: row.id,
     name: row.name,
@@ -43,14 +56,32 @@ function rowToSite(row: {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     userId: row.user_id,
+    kind,
+    slug: row.slug ?? null,
   };
 }
 
-export async function listSites(): Promise<Site[]> {
-  const { data, error } = await supabase
-    .from('sites')
-    .select('*')
-    .order('updated_at', { ascending: false });
+/** Slugify a string into a URL-friendly token (lowercase, hyphens). */
+export function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+/**
+ * List sites for the current user, filtered by kind. Defaults to 'site' so
+ * legacy callers never accidentally see landing pages mixed in.
+ */
+export async function listSites(kind: SiteKind | 'all' = 'site'): Promise<Site[]> {
+  let query = supabase.from('sites').select('*').order('updated_at', { ascending: false });
+  if (kind !== 'all') {
+    query = query.eq('kind', kind);
+  }
+  const { data, error } = await query;
   if (error) {
     console.error('[siteStore] listSites failed:', error);
     return [];
@@ -89,6 +120,7 @@ export async function createSite(opts: {
       brand_name: brand,
       pages: {},
       design: design as never,
+      kind: 'site',
     })
     .select()
     .single();
@@ -99,15 +131,62 @@ export async function createSite(opts: {
   return rowToSite(data);
 }
 
+/**
+ * Create a landing page (kind = 'landing_page'). Single-page Kajabi
+ * export with logo-only header + copyright footer.
+ */
+export async function createLandingPage(opts: {
+  name: string;
+  brandName?: string;
+  slug?: string;
+}): Promise<Site | null> {
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) {
+    console.error('[siteStore] createLandingPage: not authenticated');
+    return null;
+  }
+  const name = opts.name.trim() || 'Untitled landing page';
+  const brand = opts.brandName?.trim() || name;
+  const slug = (opts.slug?.trim() ? slugify(opts.slug) : slugify(name)) || 'landing';
+  const design = buildLandingPageBlankDesign(brand);
+  const { data, error } = await supabase
+    .from('sites')
+    .insert({
+      user_id: userId,
+      name,
+      template_id: 'landing-page-blank',
+      brand_name: brand,
+      pages: {},
+      design: design as never,
+      kind: 'landing_page',
+      slug,
+    })
+    .select()
+    .single();
+  if (error) {
+    console.error('[siteStore] createLandingPage failed:', error);
+    return null;
+  }
+  return rowToSite(data);
+}
+
 export async function updateSite(
   id: string,
-  patch: Partial<Omit<Site, 'id' | 'createdAt' | 'templateId' | 'userId'>>
+  patch: Partial<Omit<Site, 'id' | 'createdAt' | 'templateId' | 'userId' | 'kind'>>
 ): Promise<Site | null> {
-  const row: { name?: string; brand_name?: string; pages?: Site['pages']; design?: SiteDesign; } = {};
+  const row: {
+    name?: string;
+    brand_name?: string;
+    pages?: Site['pages'];
+    design?: SiteDesign;
+    slug?: string | null;
+  } = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.brandName !== undefined) row.brand_name = patch.brandName;
   if (patch.pages !== undefined) row.pages = patch.pages;
   if (patch.design !== undefined && patch.design !== null) row.design = patch.design;
+  if (patch.slug !== undefined) row.slug = patch.slug ? slugify(patch.slug) : null;
   const { data, error } = await supabase
     .from('sites')
     .update(row as never)
@@ -124,10 +203,9 @@ export async function updateSite(
 export async function duplicateSite(id: string): Promise<Site | null> {
   const original = await getSite(id);
   if (!original) return null;
-  const copy = await createSite({
-    name: `${original.name} (copy)`,
-    brandName: original.brandName,
-  });
+  const copy = original.kind === 'landing_page'
+    ? await createLandingPage({ name: `${original.name} (copy)`, brandName: original.brandName })
+    : await createSite({ name: `${original.name} (copy)`, brandName: original.brandName });
   if (!copy || !original.design) return copy;
   return updateSite(copy.id, { design: original.design });
 }
