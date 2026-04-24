@@ -26,7 +26,12 @@ export interface BaseThemeDiagnostic {
 
 // ─── Constants ─────────────────────────────────────────────
 
-const BASE_THEME_URL = '/base-theme/streamlined-home.zip';
+export type BaseThemeName = 'streamlined-home' | 'encore-page';
+const BASE_THEME_URLS: Record<BaseThemeName, string> = {
+  'streamlined-home': '/base-theme/streamlined-home.zip',
+  'encore-page': '/base-theme/encore-page.zip',
+};
+const DEFAULT_BASE_THEME: BaseThemeName = 'streamlined-home';
 const REQUIRED_FOLDERS = ['config', 'layouts', 'templates', 'sections'];
 const REQUIRED_FILES = ['config/settings_data.json'];
 const EXPECTED_FOLDERS = ['snippets', 'assets'];
@@ -38,20 +43,20 @@ function isJunkFile(path: string): boolean {
 
 // ─── Singleton Cache ───────────────────────────────────────
 
-let cachedValidation: BaseThemeValidation | null = null;
-let cachedZip: JSZip | null = null;
+const cachedValidations: Map<BaseThemeName, BaseThemeValidation> = new Map();
+const cachedZips: Map<BaseThemeName, JSZip> = new Map();
 
-export function getCachedValidation(): BaseThemeValidation | null {
-  return cachedValidation;
+export function getCachedValidation(theme: BaseThemeName = DEFAULT_BASE_THEME): BaseThemeValidation | null {
+  return cachedValidations.get(theme) ?? null;
 }
 
-export function getCachedZip(): JSZip | null {
-  return cachedZip;
+export function getCachedZip(theme: BaseThemeName = DEFAULT_BASE_THEME): JSZip | null {
+  return cachedZips.get(theme) ?? null;
 }
 
 export function clearCache(): void {
-  cachedValidation = null;
-  cachedZip = null;
+  cachedValidations.clear();
+  cachedZips.clear();
 }
 
 // ─── Detection ─────────────────────────────────────────────
@@ -78,15 +83,20 @@ function detectTopLevelFolder(zip: JSZip): string | null {
  * Validate the base theme zip. Fetches it, parses it, checks structure.
  * Caches the result so subsequent calls are instant.
  */
-export async function validateBaseTheme(forceRefresh = false): Promise<BaseThemeValidation> {
-  if (cachedValidation && !forceRefresh) return cachedValidation;
+export async function validateBaseTheme(
+  forceRefresh = false,
+  theme: BaseThemeName = DEFAULT_BASE_THEME,
+): Promise<BaseThemeValidation> {
+  const cached = cachedValidations.get(theme);
+  if (cached && !forceRefresh) return cached;
 
+  const themeUrl = BASE_THEME_URLS[theme];
   const diagnostics: BaseThemeDiagnostic[] = [];
 
   // 1. Fetch the zip
   let resp: Response;
   try {
-    resp = await fetch(BASE_THEME_URL);
+    resp = await fetch(themeUrl);
   } catch (e) {
     const result: BaseThemeValidation = {
       health: 'missing',
@@ -94,11 +104,11 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       diagnostics: [{
         level: 'error',
         code: 'FETCH_FAILED',
-        message: `Cannot reach base theme at ${BASE_THEME_URL}: ${e}`,
+        message: `Cannot reach base theme at ${themeUrl}: ${e}`,
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidations.set(theme, result);
     return result;
   }
 
@@ -113,7 +123,7 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidations.set(theme, result);
     return result;
   }
 
@@ -133,7 +143,7 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidations.set(theme, result);
     return result;
   }
 
@@ -248,8 +258,8 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
     checkedAt: new Date().toISOString(),
   };
 
-  cachedValidation = result;
-  cachedZip = zip;
+  cachedValidations.set(theme, result);
+  cachedZips.set(theme, zip);
   return result;
 }
 
@@ -259,9 +269,10 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
  * Returns the cached health or triggers a background check.
  * Never blocks — returns 'checking' if no cached result exists yet.
  */
-export function getBaseThemeHealth(): BaseThemeHealth {
-  if (cachedValidation) return cachedValidation.health;
+export function getBaseThemeHealth(theme: BaseThemeName = DEFAULT_BASE_THEME): BaseThemeHealth {
+  const cached = cachedValidations.get(theme);
+  if (cached) return cached.health;
   // Trigger background validation
-  validateBaseTheme().catch(() => {});
+  validateBaseTheme(false, theme).catch(() => {});
   return 'checking';
 }
