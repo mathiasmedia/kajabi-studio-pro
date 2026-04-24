@@ -258,8 +258,8 @@ export async function validateBaseTheme(
     checkedAt: new Date().toISOString(),
   };
 
-  cachedValidation = result;
-  cachedZip = zip;
+  cachedValidations.set(theme, result);
+  cachedZips.set(theme, zip);
   return result;
 }
 
@@ -269,9 +269,10 @@ export async function validateBaseTheme(
  * Returns the cached health or triggers a background check.
  * Never blocks — returns 'checking' if no cached result exists yet.
  */
-export function getBaseThemeHealth(): BaseThemeHealth {
-  if (cachedValidation) return cachedValidation.health;
+export function getBaseThemeHealth(theme: BaseThemeName = DEFAULT_BASE_THEME): BaseThemeHealth {
+  const cached = cachedValidations.get(theme);
+  if (cached) return cached.health;
   // Trigger background validation
-  validateBaseTheme().catch(() => {});
+  validateBaseTheme(false, theme).catch(() => {});
   return 'checking';
 }
