@@ -4,6 +4,7 @@
 import type { ReactNode } from 'react';
 import { serializeTree, type PageTrees, type SectionBackgroundOverride } from './serialize';
 import { exportThemeZip } from '@/engines/exportEngine';
+import type { BaseThemeName } from '@/engines/baseThemeValidator';
 import type { ProjectAsset } from '@/types/assets';
 import { resolveFont, buildFontCssBlock } from '@/engines/fontStrategy';
 import { buildTypeScaleCssBlock, stripTypeScaleCssBlock, type TypeScale } from '@/engines/typeScaleStrategy';
@@ -27,6 +28,7 @@ export interface ExportFromTreeOptions {
   global?: TreeGlobal;
   themeSettings?: Record<string, string>;
   customCss?: string;
+  baseTheme?: BaseThemeName;
 }
 
 function stripFontCssBlock(css: string): string {
@@ -116,7 +118,7 @@ export async function exportFromTree(
   const { settingsData, externalBackgrounds } = serializeTree(tree);
   const withFonts = injectGlobalCss(settingsData, opts.global, externalBackgrounds);
   const withTheme = mergeThemeSettings(withFonts, opts.themeSettings, opts.customCss);
-  return exportThemeZip(withTheme, opts.assets ?? []);
+  return exportThemeZip(withTheme, opts.assets ?? [], undefined, opts.baseTheme);
 }
 
 function mergeThemeSettings(
