@@ -43,20 +43,20 @@ function isJunkFile(path: string): boolean {
 
 // ─── Singleton Cache ───────────────────────────────────────
 
-let cachedValidation: BaseThemeValidation | null = null;
-let cachedZip: JSZip | null = null;
+const cachedValidations: Map<BaseThemeName, BaseThemeValidation> = new Map();
+const cachedZips: Map<BaseThemeName, JSZip> = new Map();
 
-export function getCachedValidation(): BaseThemeValidation | null {
-  return cachedValidation;
+export function getCachedValidation(theme: BaseThemeName = DEFAULT_BASE_THEME): BaseThemeValidation | null {
+  return cachedValidations.get(theme) ?? null;
 }
 
-export function getCachedZip(): JSZip | null {
-  return cachedZip;
+export function getCachedZip(theme: BaseThemeName = DEFAULT_BASE_THEME): JSZip | null {
+  return cachedZips.get(theme) ?? null;
 }
 
 export function clearCache(): void {
-  cachedValidation = null;
-  cachedZip = null;
+  cachedValidations.clear();
+  cachedZips.clear();
 }
 
 // ─── Detection ─────────────────────────────────────────────
