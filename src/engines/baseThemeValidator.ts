@@ -26,7 +26,12 @@ export interface BaseThemeDiagnostic {
 
 // ─── Constants ─────────────────────────────────────────────
 
-const BASE_THEME_URL = '/base-theme/streamlined-home.zip';
+export type BaseThemeName = 'streamlined-home' | 'encore-page';
+const BASE_THEME_URLS: Record<BaseThemeName, string> = {
+  'streamlined-home': '/base-theme/streamlined-home.zip',
+  'encore-page': '/base-theme/encore-page.zip',
+};
+const DEFAULT_BASE_THEME: BaseThemeName = 'streamlined-home';
 const REQUIRED_FOLDERS = ['config', 'layouts', 'templates', 'sections'];
 const REQUIRED_FILES = ['config/settings_data.json'];
 const EXPECTED_FOLDERS = ['snippets', 'assets'];
