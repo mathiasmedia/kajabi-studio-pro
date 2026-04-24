@@ -83,15 +83,20 @@ function detectTopLevelFolder(zip: JSZip): string | null {
  * Validate the base theme zip. Fetches it, parses it, checks structure.
  * Caches the result so subsequent calls are instant.
  */
-export async function validateBaseTheme(forceRefresh = false): Promise<BaseThemeValidation> {
-  if (cachedValidation && !forceRefresh) return cachedValidation;
+export async function validateBaseTheme(
+  forceRefresh = false,
+  theme: BaseThemeName = DEFAULT_BASE_THEME,
+): Promise<BaseThemeValidation> {
+  const cached = cachedValidations.get(theme);
+  if (cached && !forceRefresh) return cached;
 
+  const themeUrl = BASE_THEME_URLS[theme];
   const diagnostics: BaseThemeDiagnostic[] = [];
 
   // 1. Fetch the zip
   let resp: Response;
   try {
-    resp = await fetch(BASE_THEME_URL);
+    resp = await fetch(themeUrl);
   } catch (e) {
     const result: BaseThemeValidation = {
       health: 'missing',
@@ -99,11 +104,11 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       diagnostics: [{
         level: 'error',
         code: 'FETCH_FAILED',
-        message: `Cannot reach base theme at ${BASE_THEME_URL}: ${e}`,
+        message: `Cannot reach base theme at ${themeUrl}: ${e}`,
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidations.set(theme, result);
     return result;
   }
 
@@ -118,7 +123,7 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidations.set(theme, result);
     return result;
   }
 
@@ -138,7 +143,7 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidations.set(theme, result);
     return result;
   }
 
