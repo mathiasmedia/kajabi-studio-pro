@@ -1,5 +1,6 @@
 /**
  * Site Editor — single-site preview + multi-page tab switcher + export.
+ * Reads the site by `:siteId`, renders pages from `site.design`, exports as zip.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -78,7 +79,6 @@ export default function SiteEditor() {
     };
   }, [siteId, navigate]);
 
-  // Realtime: when this site's row OR its site_images change, refetch.
   useEffect(() => {
     if (!siteId) return;
     const channel = supabase
@@ -108,8 +108,6 @@ export default function SiteEditor() {
   const slotMap = useMemo(() => imagesBySlot(images), [images]);
   const pageKeys = site?.design?.pageKeys ?? [];
 
-  // Preview-time font loading: inject Google Fonts link + style rule that
-  // applies the families to the rendered preview tree.
   useEffect(() => {
     const fonts = site?.design?.fonts;
     if (!fonts) return;
@@ -166,6 +164,12 @@ export default function SiteEditor() {
     setEditingName(false);
   }
 
+  async function commitSlug(next: string) {
+    if (!site) return;
+    const updated = await updateSite(site.id, { slug: next });
+    if (updated) setSite(updated);
+  }
+
   async function handleExport() {
     if (!site || !site.design) return;
     setBusy(true);
@@ -211,12 +215,16 @@ export default function SiteEditor() {
     ? renderDesign(site.design, activePage, slotMap)
     : null;
 
+  const isLandingPage = site.kind === 'landing_page';
+  const backLabel = 'All sites';
+  const exportLabel = isLandingPage ? 'Export landing page' : 'Export theme';
+
   return (
     <div className="min-h-screen bg-muted/20">
       <div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4" /> All sites
+            <ArrowLeft className="h-4 w-4" /> {backLabel}
           </Button>
           <div className="h-6 w-px bg-border" />
           {editingName ? (
@@ -243,27 +251,33 @@ export default function SiteEditor() {
               <Pencil className="h-3 w-3 text-muted-foreground" />
             </button>
           )}
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            · {pageKeys.length} {pageKeys.length === 1 ? 'page' : 'pages'}
-          </span>
+          {isLandingPage ? (
+            <SlugField key={site.id} initial={site.slug ?? ''} onCommit={commitSlug} />
+          ) : (
+            <span className="hidden text-xs text-muted-foreground sm:inline">
+              · {pageKeys.length} {pageKeys.length === 1 ? 'page' : 'pages'}
+            </span>
+          )}
         </div>
 
-        <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
-          <SelectTrigger className="h-9 w-56">
-            <SelectValue placeholder="Select page" />
-          </SelectTrigger>
-          <SelectContent>
-            {pageKeys.map((key) => (
-              <SelectItem key={key} value={key}>
-                {pageLabel(key)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {!isLandingPage && (
+          <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
+            <SelectTrigger className="h-9 w-56">
+              <SelectValue placeholder="Select page" />
+            </SelectTrigger>
+            <SelectContent>
+              {pageKeys.map((key) => (
+                <SelectItem key={key} value={key}>
+                  {pageLabel(key)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Button onClick={handleExport} disabled={busy || !site.design} size="sm">
           <Download className="h-4 w-4" />
-          {busy ? 'Building zip…' : 'Export theme'}
+          {busy ? 'Building zip…' : exportLabel}
         </Button>
       </div>
 
@@ -275,5 +289,62 @@ export default function SiteEditor() {
         )}
       </div>
     </div>
+  );
+}
+
+/** Inline slug editor for landing pages. */
+function SlugField({
+  initial,
+  onCommit,
+}: {
+  initial: string;
+  onCommit: (next: string) => void | Promise<void>;
+}) {
+  const [value, setValue] = useState(initial);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    setValue(initial);
+  }, [initial]);
+
+  function commit() {
+    setEditing(false);
+    if (value.trim() !== initial) {
+      onCommit(value.trim());
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 rounded-md border border-input bg-background px-2">
+        <span className="text-xs text-muted-foreground">/</span>
+        <Input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') {
+              setValue(initial);
+              setEditing(false);
+            }
+          }}
+          className="h-7 w-40 border-0 px-1 text-xs shadow-none focus-visible:ring-0"
+          placeholder="slug"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title="Edit slug"
+      className="hidden items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:bg-muted hover:text-foreground sm:inline-flex"
+    >
+      <span>/{initial || 'no-slug'}</span>
+      <Pencil className="h-3 w-3" />
+    </button>
   );
 }
