@@ -192,6 +192,7 @@ export default function SiteEditor() {
         global,
         themeSettings,
         customCss,
+        baseTheme: site.kind === 'landing_page' ? 'encore-page' : 'streamlined-home',
       });
       const safe = site.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
       triggerDownload(blob, `${safe}.zip`);
