@@ -284,6 +284,60 @@ const STRUCTURAL_KEYS = new Set([
   'sections', 'link_lists', 'pages', 'pages_data',
 ]);
 
+function candidateIsValid(id: string, value: unknown): boolean {
+  return validateTemplateSetting(id, value) === null;
+}
+
+function normalizeTemplateSettingValue(
+  id: string,
+  value: unknown,
+  fallbackValue: unknown,
+): { value: unknown; repair?: TemplateSettingRepair } {
+  const field = TEMPLATE_SETTINGS_BY_ID[id];
+  if (!field) return { value };
+
+  if (field.type === 'checkbox' && typeof value === 'boolean') {
+    const next = value ? 'true' : 'false';
+    return {
+      value: next,
+      repair: { id, from: value, to: next, reason: 'Converted boolean checkbox value to Kajabi string format' },
+    };
+  }
+
+  const issue = validateTemplateSetting(id, value);
+  if (!issue) return { value };
+
+  if (field.type === 'range') {
+    const n = Number(value);
+    if (!Number.isNaN(n)) {
+      const min = field.min !== undefined ? Number(field.min) : -Infinity;
+      const max = field.max !== undefined ? Number(field.max) : Infinity;
+      const clamped = String(Math.min(max, Math.max(min, n)));
+      if (candidateIsValid(id, clamped)) {
+        return {
+          value: clamped,
+          repair: { id, from: value, to: clamped, reason: 'Clamped range value into schema bounds' },
+        };
+      }
+    }
+  }
+
+  if (field.type === 'select' || field.type === 'pill_tabs' || field.type === 'range') {
+    const candidates = [fallbackValue, field.default, field.options?.[0]?.value];
+    for (const candidate of candidates) {
+      if (candidate === undefined || candidate === null || candidate === '') continue;
+      if (!candidateIsValid(id, candidate)) continue;
+      const next = String(candidate);
+      return {
+        value: next,
+        repair: { id, from: value, to: next, reason: 'Replaced invalid setting with a schema-safe fallback' },
+      };
+    }
+  }
+
+  return { value };
+}
+
 export interface TemplateSettingsAuditResult {
   totalChecked: number;
   knownFields: number;
@@ -312,6 +366,26 @@ export function auditTemplateSettings(current: Record<string, unknown>): Templat
   }
 
   return { totalChecked: total, knownFields: known, unknownFields: unknown, issues };
+}
+
+export function sanitizeTemplateSettings(
+  current: Record<string, unknown>,
+  fallbackCurrent: Record<string, unknown> = {},
+): TemplateSettingsSanitizeResult {
+  const sanitized: Record<string, unknown> = { ...current };
+  const repairs: TemplateSettingRepair[] = [];
+
+  for (const [key, value] of Object.entries(current)) {
+    if (STRUCTURAL_KEYS.has(key)) continue;
+    if (key.startsWith('content_for_')) continue;
+    if (!TEMPLATE_SETTING_IDS.has(key)) continue;
+
+    const normalized = normalizeTemplateSettingValue(key, value, fallbackCurrent[key]);
+    sanitized[key] = normalized.value;
+    if (normalized.repair) repairs.push(normalized.repair);
+  }
+
+  return { sanitized, repairs };
 }
 
 /**
