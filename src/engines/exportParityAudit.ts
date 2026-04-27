@@ -216,8 +216,9 @@ function auditBlock(
     });
   }
 
-  // Check for invalid block types in body sections (only text/image are valid)
-  if (!VALID_BODY_BLOCK_TYPES.has(blockType) && !['logo', 'menu', 'copyright'].includes(blockType)) {
+  // Check for invalid block types using the real per-section schema whitelist.
+  const allowedForRole = ALLOWED_BLOCKS_PER_SECTION[sectionRole] ?? ALLOWED_BLOCKS_PER_SECTION.section;
+  if (!allowedForRole.has(blockType)) {
     if (!blockTypeWarning) { // Don't double-flag
       criticalMissing.push(`invalid_block_type:${blockType}`);
       fields.push({
@@ -226,7 +227,7 @@ function auditBlock(
         exportedValue: blockType,
         schemaDefault: 'text',
         status: 'will_use_default',
-        issue: `Block type "${blockType}" is not supported in streamlined-home body sections. Only "text", "image", and "feature" blocks are valid here.`,
+        issue: `Block type "${blockType}" is not allowed inside a Kajabi ${sectionRole} section. Allowed types: ${[...allowedForRole].join(', ')}.`,
       });
     }
   }
