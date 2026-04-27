@@ -7,7 +7,16 @@
  *
  * The audit answers: "Will this section look the same in Kajabi as it does in preview?"
  */
-import { BLOCK_FIELD_SCHEMAS, SECTION_ONLY_FIELDS, normalizeLegacyFeatureContent } from './kajabiFieldSchema';
+import { BLOCK_FIELD_SCHEMAS, SECTION_ONLY_FIELDS, normalizeLegacyFeatureContent, ALLOWED_BLOCKS_PER_SECTION } from './kajabiFieldSchema';
+
+/** Resolve which Kajabi section schema applies for a given section id/type. */
+function sectionRoleFor(sectionId: string, sectionType: string | undefined): 'header' | 'footer' | 'section' {
+  if (sectionId === 'header') return 'header';
+  if (sectionId === 'footer') return 'footer';
+  if (sectionType === 'header') return 'header';
+  if (sectionType === 'footer') return 'footer';
+  return 'section';
+}
 
 // ---- Types ----
 
@@ -100,12 +109,11 @@ const BLOCK_TYPE_WARNINGS: Record<string, string> = {
 };
 
 /**
- * Body sections in streamlined-home accept text/image/feature blocks.
- * (Conservative expansion this pass — only `feature` was added; broader
- *  expansion to match ALLOWED_BLOCKS_PER_SECTION.section can come later
- *  once we've verified each downstream consumer.)
+ * @deprecated — use ALLOWED_BLOCKS_PER_SECTION from kajabiFieldSchema instead.
+ * Kept only for back-compat; no longer consulted by auditBlock.
  */
-const VALID_BODY_BLOCK_TYPES = new Set(['text', 'image', 'feature']);
+const VALID_BODY_BLOCK_TYPES = new Set(['text', 'image', 'feature', 'cta', 'accordion', 'card', 'social_icons', 'code', 'video_embed', 'pricing', 'video', 'form', 'link_list']);
+void VALID_BODY_BLOCK_TYPES;
 
 /**
  * Detect blocks that still carry legacy {heading, body} content with no
@@ -145,6 +153,7 @@ function auditBlock(
   blockId: string,
   internalBlock: { type: string; settings: Record<string, unknown> } | undefined,
   exportedBlock: { type: string; settings: Record<string, unknown> } | undefined,
+  sectionRole: 'header' | 'footer' | 'section' = 'section',
 ): BlockParity {
   const blockType = internalBlock?.type || exportedBlock?.type || 'unknown';
   const fields: FieldParity[] = [];
@@ -207,8 +216,9 @@ function auditBlock(
     });
   }
 
-  // Check for invalid block types in body sections (only text/image are valid)
-  if (!VALID_BODY_BLOCK_TYPES.has(blockType) && !['logo', 'menu', 'copyright'].includes(blockType)) {
+  // Check for invalid block types using the real per-section schema whitelist.
+  const allowedForRole = ALLOWED_BLOCKS_PER_SECTION[sectionRole] ?? ALLOWED_BLOCKS_PER_SECTION.section;
+  if (!allowedForRole.has(blockType)) {
     if (!blockTypeWarning) { // Don't double-flag
       criticalMissing.push(`invalid_block_type:${blockType}`);
       fields.push({
@@ -217,7 +227,7 @@ function auditBlock(
         exportedValue: blockType,
         schemaDefault: 'text',
         status: 'will_use_default',
-        issue: `Block type "${blockType}" is not supported in streamlined-home body sections. Only "text", "image", and "feature" blocks are valid here.`,
+        issue: `Block type "${blockType}" is not allowed inside a Kajabi ${sectionRole} section. Allowed types: ${[...allowedForRole].join(', ')}.`,
       });
     }
   }
@@ -296,12 +306,14 @@ function auditSection(
     issues.push('Block order differs between internal and exported');
   }
 
-  // Audit each block
+  // Audit each block (with section-role context so the block-type whitelist
+  // matches the real Kajabi schema for header/footer/section).
+  const sectionRole = sectionRoleFor(sectionId, sectionType);
   const allBlockIds = new Set([...Object.keys(iBlocks), ...Object.keys(eBlocks)]);
   const blocks: BlockParity[] = [];
-  
+
   for (const blockId of allBlockIds) {
-    blocks.push(auditBlock(blockId, iBlocks[blockId], eBlocks[blockId]));
+    blocks.push(auditBlock(blockId, iBlocks[blockId], eBlocks[blockId], sectionRole));
   }
 
   const hasDefaultFallbacks = blocks.some(b => b.willFallbackToDefaults);
