@@ -306,12 +306,14 @@ function auditSection(
     issues.push('Block order differs between internal and exported');
   }
 
-  // Audit each block
+  // Audit each block (with section-role context so the block-type whitelist
+  // matches the real Kajabi schema for header/footer/section).
+  const sectionRole = sectionRoleFor(sectionId, sectionType);
   const allBlockIds = new Set([...Object.keys(iBlocks), ...Object.keys(eBlocks)]);
   const blocks: BlockParity[] = [];
-  
+
   for (const blockId of allBlockIds) {
-    blocks.push(auditBlock(blockId, iBlocks[blockId], eBlocks[blockId]));
+    blocks.push(auditBlock(blockId, iBlocks[blockId], eBlocks[blockId], sectionRole));
   }
 
   const hasDefaultFallbacks = blocks.some(b => b.willFallbackToDefaults);
