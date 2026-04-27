@@ -19,7 +19,7 @@ import { getCachedZip, getCachedValidation, validateBaseTheme, type BaseThemeNam
 import { checkForDefaultFallbacks, runParityAudit, type ParityAuditResult } from './exportParityAudit';
 import { transformForExport, buildArchetypeMap, type TransformReport } from './exportTransforms';
 import { enforceSettingSafety } from './settingSafety';
-import { EXPORTABLE_TEMPLATE_SETTING_IDS, auditTemplateSettings } from './templateSettingsCatalog';
+import { EXPORTABLE_TEMPLATE_SETTING_IDS, auditTemplateSettings, sanitizeTemplateSettings } from './templateSettingsCatalog';
 import { SYSTEM_TEMPLATES } from '@/blocks/serialize';
 import type { ProjectAsset } from '@/types/assets';
 import type { VisualPlanV1 } from '@/types/schemas';
@@ -471,10 +471,25 @@ export async function exportThemeZip(
 
   // --- Post-merge: template-settings audit ---
   const finalCurrent = (finalSettings as { current?: Record<string, unknown> }).current || {};
-  const templateAudit = auditTemplateSettings(finalCurrent);
+  const fallbackCurrent = (originalSettings as { current?: Record<string, unknown> } | null)?.current || {};
+  const sanitizedTemplateSettings = sanitizeTemplateSettings(finalCurrent, fallbackCurrent);
+  if (sanitizedTemplateSettings.repairs.length > 0) {
+    console.warn('[Export] Template settings auto-repaired:', sanitizedTemplateSettings.repairs);
+    finalSettings = {
+      ...finalSettings,
+      current: {
+        ...finalCurrent,
+        ...sanitizedTemplateSettings.sanitized,
+      },
+    };
+  }
+
+  const auditedCurrent = (finalSettings as { current?: Record<string, unknown> }).current || {};
+  const templateAudit = auditTemplateSettings(auditedCurrent);
   const templateErrors = templateAudit.issues.filter(i => i.level === 'error');
   if (templateErrors.length > 0) {
     console.error(`[Export] Template settings: ${templateErrors.length} error(s):`, templateErrors);
+    throw new Error(`Kajabi export blocked due to invalid template settings:\n${templateErrors.map(i => i.message).join('\n')}`);
   }
   if (templateAudit.unknownFields.length > 0) {
     console.warn(`[Export] Template settings: ${templateAudit.unknownFields.length} unknown top-level key(s):`, templateAudit.unknownFields);
