@@ -26,13 +26,46 @@ export interface BaseThemeDiagnostic {
 
 // ─── Constants ─────────────────────────────────────────────
 
-export type BaseThemeName = 'streamlined-home' | 'encore-page';
+/**
+ * Supported Kajabi base themes. Each maps to a zip in `public/base-theme/`.
+ *
+ *  - `streamlined-home`     → Standard multi-page website theme (default for kind=site).
+ *  - `streamlined-home-pro` → Pro multi-page website theme (sliders, animations,
+ *                              column layouts, extra block types).
+ *  - `encore-page`          → Standard single-page landing page theme (default for kind=landing_page).
+ *  - `encore-page-pro`      → Pro landing page theme (full feature parity with website-pro
+ *                              plus blog/newsletter/sidebar snippets).
+ *
+ * Per-block schemas are 100% backward compatible across Standard ↔ Pro within
+ * the same family, so a site authored against Standard can export against Pro
+ * (and vice versa) without migration.
+ */
+export type BaseThemeName =
+  | 'streamlined-home'
+  | 'streamlined-home-pro'
+  | 'encore-page'
+  | 'encore-page-pro';
+
 const BASE_THEME_URLS: Record<BaseThemeName, string> = {
   'streamlined-home': '/base-theme/streamlined-home.zip',
+  'streamlined-home-pro': '/base-theme/streamlined-home-pro.zip',
   'encore-page': '/base-theme/encore-page.zip',
+  'encore-page-pro': '/base-theme/encore-page-pro.zip',
 };
-const DEFAULT_BASE_THEME: BaseThemeName = 'streamlined-home';
-const REQUIRED_FOLDERS = ['config', 'layouts', 'templates', 'sections'];
+
+/**
+ * Required folders per base theme. Encore-page (Standard + Pro) is a
+ * single-template Kajabi theme — no `layouts/` folder; `templates/index.liquid`
+ * is the entry point and pulls the layout via `{% include "global_head" %}`.
+ * The streamlined-home family ships the full theme structure including layouts.
+ */
+const REQUIRED_FOLDERS_BY_THEME: Record<BaseThemeName, string[]> = {
+  'streamlined-home': ['config', 'layouts', 'templates', 'sections'],
+  'streamlined-home-pro': ['config', 'layouts', 'templates', 'sections'],
+  'encore-page': ['config', 'templates', 'sections', 'snippets'],
+  'encore-page-pro': ['config', 'templates', 'sections', 'snippets'],
+};
+
 const REQUIRED_FILES = ['config/settings_data.json'];
 const EXPECTED_FOLDERS = ['snippets', 'assets'];
 
@@ -43,20 +76,29 @@ function isJunkFile(path: string): boolean {
 
 // ─── Singleton Cache ───────────────────────────────────────
 
-const cachedValidations: Map<BaseThemeName, BaseThemeValidation> = new Map();
-const cachedZips: Map<BaseThemeName, JSZip> = new Map();
+const cachedValidationByTheme = new Map<BaseThemeName, BaseThemeValidation>();
+const cachedZipByTheme = new Map<BaseThemeName, JSZip>();
 
-export function getCachedValidation(theme: BaseThemeName = DEFAULT_BASE_THEME): BaseThemeValidation | null {
-  return cachedValidations.get(theme) ?? null;
+export function getCachedValidation(
+  theme: BaseThemeName = 'streamlined-home',
+): BaseThemeValidation | null {
+  return cachedValidationByTheme.get(theme) ?? null;
 }
 
-export function getCachedZip(theme: BaseThemeName = DEFAULT_BASE_THEME): JSZip | null {
-  return cachedZips.get(theme) ?? null;
+export function getCachedZip(
+  theme: BaseThemeName = 'streamlined-home',
+): JSZip | null {
+  return cachedZipByTheme.get(theme) ?? null;
 }
 
-export function clearCache(): void {
-  cachedValidations.clear();
-  cachedZips.clear();
+export function clearCache(theme?: BaseThemeName): void {
+  if (theme) {
+    cachedValidationByTheme.delete(theme);
+    cachedZipByTheme.delete(theme);
+  } else {
+    cachedValidationByTheme.clear();
+    cachedZipByTheme.clear();
+  }
 }
 
 // ─── Detection ─────────────────────────────────────────────
@@ -84,19 +126,31 @@ function detectTopLevelFolder(zip: JSZip): string | null {
  * Caches the result so subsequent calls are instant.
  */
 export async function validateBaseTheme(
-  forceRefresh = false,
-  theme: BaseThemeName = DEFAULT_BASE_THEME,
+  themeOrForce: BaseThemeName | boolean = 'streamlined-home',
+  forceRefreshArg = false,
 ): Promise<BaseThemeValidation> {
-  const cached = cachedValidations.get(theme);
+  // Backwards compat: old callers passed `validateBaseTheme(forceRefresh: boolean)`.
+  let theme: BaseThemeName;
+  let forceRefresh: boolean;
+  if (typeof themeOrForce === 'boolean') {
+    theme = 'streamlined-home';
+    forceRefresh = themeOrForce;
+  } else {
+    theme = themeOrForce;
+    forceRefresh = forceRefreshArg;
+  }
+
+  const cached = cachedValidationByTheme.get(theme);
   if (cached && !forceRefresh) return cached;
 
-  const themeUrl = BASE_THEME_URLS[theme];
+  const url = BASE_THEME_URLS[theme];
+  const requiredFolders = REQUIRED_FOLDERS_BY_THEME[theme];
   const diagnostics: BaseThemeDiagnostic[] = [];
 
   // 1. Fetch the zip
   let resp: Response;
   try {
-    resp = await fetch(themeUrl);
+    resp = await fetch(url);
   } catch (e) {
     const result: BaseThemeValidation = {
       health: 'missing',
@@ -104,11 +158,11 @@ export async function validateBaseTheme(
       diagnostics: [{
         level: 'error',
         code: 'FETCH_FAILED',
-        message: `Cannot reach base theme at ${themeUrl}: ${e}`,
+        message: `Cannot reach base theme at ${url}: ${e}`,
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidations.set(theme, result);
+    cachedValidationByTheme.set(theme, result);
     return result;
   }
 
@@ -123,7 +177,7 @@ export async function validateBaseTheme(
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidations.set(theme, result);
+    cachedValidationByTheme.set(theme, result);
     return result;
   }
 
@@ -143,7 +197,7 @@ export async function validateBaseTheme(
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidations.set(theme, result);
+    cachedValidationByTheme.set(theme, result);
     return result;
   }
 
@@ -153,12 +207,12 @@ export async function validateBaseTheme(
     diagnostics.push({
       level: 'warning',
       code: 'NO_ROOT_FOLDER',
-      message: 'No single top-level folder detected. Expected a folder like streamlined-home/.',
+      message: `No single top-level folder detected. Expected a folder like ${theme}/.`,
     });
   }
 
   // 4. Check required folders
-  for (const folder of REQUIRED_FOLDERS) {
+  for (const folder of requiredFolders) {
     const fullPath = rootPrefix + folder + '/';
     const hasFolder = Object.keys(zip.files).some(f => f.startsWith(fullPath));
     if (!hasFolder) {
@@ -258,8 +312,8 @@ export async function validateBaseTheme(
     checkedAt: new Date().toISOString(),
   };
 
-  cachedValidations.set(theme, result);
-  cachedZips.set(theme, zip);
+  cachedValidationByTheme.set(theme, result);
+  cachedZipByTheme.set(theme, zip);
   return result;
 }
 
@@ -269,10 +323,12 @@ export async function validateBaseTheme(
  * Returns the cached health or triggers a background check.
  * Never blocks — returns 'checking' if no cached result exists yet.
  */
-export function getBaseThemeHealth(theme: BaseThemeName = DEFAULT_BASE_THEME): BaseThemeHealth {
-  const cached = cachedValidations.get(theme);
+export function getBaseThemeHealth(
+  theme: BaseThemeName = 'streamlined-home',
+): BaseThemeHealth {
+  const cached = cachedValidationByTheme.get(theme);
   if (cached) return cached.health;
   // Trigger background validation
-  validateBaseTheme(false, theme).catch(() => {});
+  validateBaseTheme(theme).catch(() => {});
   return 'checking';
 }
