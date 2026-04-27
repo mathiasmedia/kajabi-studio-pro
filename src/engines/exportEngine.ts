@@ -73,7 +73,7 @@ async function loadBaseThemeZip(theme: BaseThemeName = 'streamlined-home'): Prom
     console.log(`[Export] Using cached + validated base theme zip (${theme})`);
   } else {
     // Validate first, then use
-    const validation = await validateBaseTheme(false, theme);
+    const validation = await validateBaseTheme(theme, false);
     if (validation.health === 'missing') {
       throw new Error(`Base theme zip is missing (${theme}). Export cannot proceed.`);
     }
