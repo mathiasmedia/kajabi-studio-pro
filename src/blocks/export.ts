@@ -67,6 +67,25 @@ function stripExternalBgCssBlock(css: string): string {
   );
 }
 
+function normalizeCssImportOrder(css: string): string {
+  if (!css || !css.trim()) return '';
+
+  const importRegex = /@import\s+url\([^)]*\)[^;]*;|@import\s+['"][^'"]+['"][^;]*;/g;
+  const imports: string[] = [];
+  const seen = new Set<string>();
+
+  const body = css.replace(importRegex, (statement) => {
+    const clean = statement.trim();
+    if (!seen.has(clean)) {
+      seen.add(clean);
+      imports.push(clean);
+    }
+    return '';
+  }).trim();
+
+  return [...imports, body].filter(Boolean).join('\n\n');
+}
+
 export function injectGlobalCss(
   settingsData: Record<string, unknown>,
   global: TreeGlobal | undefined,
@@ -105,7 +124,7 @@ export function injectGlobalCss(
 
   return {
     ...settingsData,
-    current: { ...current, css: merged },
+    current: { ...current, css: normalizeCssImportOrder(merged) },
   };
 }
 
@@ -167,7 +186,9 @@ function mergeThemeSettings(
       /\/\* === template customCss ===[\s\S]*?\/\* === end template customCss === \*\//g,
       '',
     ).trim();
-    current.css = [cleaned, block].filter(s => s && s.length > 0).join('\n\n');
+    current.css = normalizeCssImportOrder(
+      [cleaned, block].filter(s => s && s.length > 0).join('\n\n')
+    );
   }
 
   return { ...settingsData, current };
