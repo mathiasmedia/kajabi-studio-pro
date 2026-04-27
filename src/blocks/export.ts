@@ -130,9 +130,23 @@ function mergeThemeSettings(
   const root = (settingsData ?? {}) as { current?: Record<string, unknown> };
   const current = { ...((root.current ?? {}) as Record<string, unknown>) };
 
+  const THEME_SETTING_ALIASES: Record<string, string> = {
+    body_font: 'font_family_body',
+    font_body: 'font_family_body',
+    heading_font: 'font_family_heading',
+    font_heading: 'font_family_heading',
+    font_body_weight: 'font_weight_body',
+    font_heading_weight: 'font_weight_heading',
+    color_text: 'color_body',
+    color_background: 'background_color',
+    color_button: 'btn_background_color',
+    color_button_text: 'btn_text_color',
+  };
+
   if (themeSettings) {
     for (const [k, v] of Object.entries(themeSettings)) {
-      if (v !== undefined && v !== null && v !== '') current[k] = v;
+      if (v === undefined || v === null || v === '') continue;
+      current[THEME_SETTING_ALIASES[k] ?? k] = v;
     }
   }
 
