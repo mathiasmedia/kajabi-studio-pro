@@ -461,6 +461,9 @@ export async function exportThemeZip(
   const parityAudit = runParityAudit(settingsForMerge, finalSettings);
   if (parityAudit.criticalIssues.length > 0) {
     console.error('[Export] PARITY CRITICAL:', parityAudit.criticalIssues);
+    throw new Error(
+      `Kajabi export blocked due to schema-parity issues:\n${parityAudit.criticalIssues.join('\n')}`
+    );
   }
   if (parityAudit.warnings.length > 0) {
     console.warn('[Export] Parity warnings:', parityAudit.warnings);
