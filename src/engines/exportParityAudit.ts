@@ -109,12 +109,11 @@ const BLOCK_TYPE_WARNINGS: Record<string, string> = {
 };
 
 /**
- * Body sections in streamlined-home accept text/image/feature blocks.
- * (Conservative expansion this pass — only `feature` was added; broader
- *  expansion to match ALLOWED_BLOCKS_PER_SECTION.section can come later
- *  once we've verified each downstream consumer.)
+ * @deprecated — use ALLOWED_BLOCKS_PER_SECTION from kajabiFieldSchema instead.
+ * Kept only for back-compat; no longer consulted by auditBlock.
  */
-const VALID_BODY_BLOCK_TYPES = new Set(['text', 'image', 'feature']);
+const VALID_BODY_BLOCK_TYPES = new Set(['text', 'image', 'feature', 'cta', 'accordion', 'card', 'social_icons', 'code', 'video_embed', 'pricing', 'video', 'form', 'link_list']);
+void VALID_BODY_BLOCK_TYPES;
 
 /**
  * Detect blocks that still carry legacy {heading, body} content with no
