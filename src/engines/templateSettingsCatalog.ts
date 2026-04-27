@@ -203,6 +203,18 @@ export interface TemplateSettingIssue {
   message: string;
 }
 
+export interface TemplateSettingRepair {
+  id: string;
+  from: unknown;
+  to: unknown;
+  reason: string;
+}
+
+export interface TemplateSettingsSanitizeResult {
+  sanitized: Record<string, unknown>;
+  repairs: TemplateSettingRepair[];
+}
+
 /**
  * Validate a single template-level setting value against its schema.
  * Returns null when valid.
@@ -250,7 +262,7 @@ export function validateTemplateSetting(id: string, value: unknown): TemplateSet
       if (field.options && field.options.length > 0) {
         const allowed = field.options.map(o => o.value);
         if (!allowed.includes(v)) {
-          return { id, level: 'warning', message: `"${id}" value "${v}" not in allowed options [${allowed.join(', ')}]` };
+          return { id, level: 'error', message: `"${id}" value "${v}" not in allowed options [${allowed.join(', ')}]` };
         }
       }
       return null;
