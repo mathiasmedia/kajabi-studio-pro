@@ -7,7 +7,16 @@
  *
  * The audit answers: "Will this section look the same in Kajabi as it does in preview?"
  */
-import { BLOCK_FIELD_SCHEMAS, SECTION_ONLY_FIELDS, normalizeLegacyFeatureContent } from './kajabiFieldSchema';
+import { BLOCK_FIELD_SCHEMAS, SECTION_ONLY_FIELDS, normalizeLegacyFeatureContent, ALLOWED_BLOCKS_PER_SECTION } from './kajabiFieldSchema';
+
+/** Resolve which Kajabi section schema applies for a given section id/type. */
+function sectionRoleFor(sectionId: string, sectionType: string | undefined): 'header' | 'footer' | 'section' {
+  if (sectionId === 'header') return 'header';
+  if (sectionId === 'footer') return 'footer';
+  if (sectionType === 'header') return 'header';
+  if (sectionType === 'footer') return 'footer';
+  return 'section';
+}
 
 // ---- Types ----
 
