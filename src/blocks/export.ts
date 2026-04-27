@@ -70,7 +70,7 @@ function stripExternalBgCssBlock(css: string): string {
 function normalizeCssImportOrder(css: string): string {
   if (!css || !css.trim()) return '';
 
-  const importRegex = /@import\s+(?:url\([^;]+\)|['"][^'"]+['"])[^;]*;/g;
+  const importRegex = /@import\s+url\([^)]*\)[^;]*;|@import\s+['"][^'"]+['"][^;]*;/g;
   const imports: string[] = [];
   const seen = new Set<string>();
 
