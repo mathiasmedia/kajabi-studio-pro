@@ -143,10 +143,20 @@ function mergeThemeSettings(
     color_button_text: 'btn_text_color',
   };
 
+  const KAJABI_FONT_SELECT_KEYS = new Set(['font_family_body', 'font_family_heading']);
+
   if (themeSettings) {
     for (const [k, v] of Object.entries(themeSettings)) {
       if (v === undefined || v === null || v === '') continue;
-      current[THEME_SETTING_ALIASES[k] ?? k] = v;
+      const targetKey = THEME_SETTING_ALIASES[k] ?? k;
+
+      // Kajabi's importer is stricter than our schema parser for font_select
+      // fields. Custom Google font families should load via injected CSS, while
+      // the theme's native font_family_* settings stay on the base theme's safe
+      // defaults so the zip remains importable.
+      if (KAJABI_FONT_SELECT_KEYS.has(targetKey)) continue;
+
+      current[targetKey] = v;
     }
   }
 
