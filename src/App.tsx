@@ -12,7 +12,6 @@ import Index from "./pages/Index.tsx";
 import SiteEditor from "./pages/SiteEditor.tsx";
 import Auth from "./pages/Auth.tsx";
 import ResetPassword from "./pages/ResetPassword.tsx";
-import Admin from "./pages/Admin.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -45,16 +44,9 @@ const App = () => (
                 </RequireAuth>
               }
             />
-            <Route
-              path="/admin"
-              element={
-                <RequireAuth>
-                  <Admin />
-                </RequireAuth>
-              }
-            />
-            {/* Legacy /admin/users → /admin */}
-            <Route path="/admin/users" element={<Navigate to="/admin" replace />} />
+            {/* /admin route is master-only; thin clients redirect to dashboard */}
+            <Route path="/admin" element={<Navigate to="/" replace />} />
+            <Route path="/admin/users" element={<Navigate to="/" replace />} />
             {/* Legacy /export route → bounce to dashboard */}
             <Route path="/export" element={<Navigate to="/" replace />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
