@@ -1,13 +1,24 @@
 /**
  * Blank SiteDesign baseline for **landing pages** (kind = 'landing_page').
  *
- * Single page with logo-only header + copyright footer.
+ * A landing page is a single-page site with deliberately minimal chrome:
+ *   - Logo-only header (no nav menu — distractions kill conversion)
+ *   - Hero / content slot the operator fills in
+ *   - Copyright-only footer (no social links, no link lists)
+ *
+ * Sites with `kind === 'landing_page'` are exported against Kajabi's
+ * **encore-page** base theme — a dedicated single-template landing-page
+ * theme that ships only `templates/index.liquid`. The export engine
+ * branches on `site.kind` in `SiteEditor.tsx` to pick the right base zip;
+ * the rest of the design schema (sections, blocks, fields) is identical
+ * to streamlined-home, so no per-block code changes are needed.
  */
 import type { SiteDesign, DesignPage, DesignSection } from './types';
 import { SITE_DESIGN_VERSION } from './types';
 
 const SANS = `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
 
+/** Logo-only header. No menu, no CTA — minimal chrome by design. */
 function logoOnlyHeader(brand: string): DesignSection {
   return {
     kind: 'header',
@@ -24,6 +35,7 @@ function logoOnlyHeader(brand: string): DesignSection {
   };
 }
 
+/** Copyright-only footer. No nav columns, no social icons. */
 function copyrightFooter(brand: string): DesignSection {
   const year = new Date().getFullYear();
   return {
@@ -36,11 +48,15 @@ function copyrightFooter(brand: string): DesignSection {
       verticalLayout: true,
     },
     blocks: [
-      { type: 'copyright', props: { text: `© ${year} ${brand}. All rights reserved.` } },
+      {
+        type: 'copyright',
+        props: { text: `© ${year} ${brand}. All rights reserved.` },
+      },
     ],
   };
 }
 
+/** Default landing-page hero — a clear promise + single CTA. */
 function landingHero(brand: string): DesignSection {
   const heroHtml = `
     <div style="font-family:${SANS}">
@@ -57,6 +73,10 @@ function landingHero(brand: string): DesignSection {
   };
 }
 
+/**
+ * Build a fresh blank landing-page `SiteDesign` parameterized by brand name.
+ * Single page (`index`), logo-only header, copyright footer.
+ */
 export function buildLandingPageBlankDesign(brandName: string): SiteDesign {
   const page: DesignPage = {
     sections: [

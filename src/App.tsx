@@ -5,11 +5,14 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { RequireAuth } from "@/components/RequireAuth";
-import Index from "./pages/Index";
-import Auth from "./pages/Auth";
-import ResetPassword from "./pages/ResetPassword";
-import SiteEditor from "./pages/SiteEditor";
-import NotFound from "./pages/NotFound";
+import Index from "./pages/Index.tsx";
+// LandingPagesDashboard is no longer routed — the unified workspace at "/" shows
+// both websites and landing pages. The file is kept for thin-client sync compat.
+
+import SiteEditor from "./pages/SiteEditor.tsx";
+import Auth from "./pages/Auth.tsx";
+import ResetPassword from "./pages/ResetPassword.tsx";
+import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +34,8 @@ const App = () => (
                 </RequireAuth>
               }
             />
+            {/* Legacy /landing-pages → unified workspace at "/" */}
+            <Route path="/landing-pages" element={<Navigate to="/" replace />} />
             <Route
               path="/sites/:siteId"
               element={
@@ -39,9 +44,12 @@ const App = () => (
                 </RequireAuth>
               }
             />
-            {/* Legacy /landing-pages → unified workspace at "/" */}
-            <Route path="/landing-pages" element={<Navigate to="/" replace />} />
+            {/* /admin route is master-only; thin clients redirect to dashboard */}
+            <Route path="/admin" element={<Navigate to="/" replace />} />
+            <Route path="/admin/users" element={<Navigate to="/" replace />} />
+            {/* Legacy /export route → bounce to dashboard */}
             <Route path="/export" element={<Navigate to="/" replace />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

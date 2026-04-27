@@ -1,6 +1,10 @@
 /**
  * AppHeader — shared site-wide header with brand mark, title, and account
- * dropdown. Pages may render extra controls (e.g. "New site") via `actions`.
+ * dropdown. Pages may render extra controls (e.g. "New") via `actions`.
+ *
+ * Note: there used to be Sites / Landing pages nav tabs here. They were
+ * removed when both surfaces were merged into a single workspace dashboard
+ * — the brand mark routes to `/` which now shows everything in one place.
  */
 import { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -32,7 +36,7 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Pro</h1>
+            <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Max</h1>
             <p className="text-xs text-muted-foreground">Build, save, and export Kajabi themes.</p>
           </div>
         </button>
@@ -82,3 +86,4 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
     </header>
   );
 }
+

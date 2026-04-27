@@ -369,3 +369,4 @@ export async function deleteSite(id: string): Promise<void> {
 export function enabledPageCount(site: Site): number {
   return SYSTEM_PAGE_KEYS.filter((k) => site.pages[k]?.enabled !== false).length;
 }
+
