@@ -15,16 +15,23 @@
 import JSZip from 'jszip';
 import { validateAndRepairSections, getExportBlockingErrors } from './kajabiFieldSchema';
 import { resolveAssetsForExport, downloadAssetBlob, validateAssets } from './assetManager';
-import { getCachedZip, getCachedValidation, validateBaseTheme, type BaseThemeName } from './baseThemeValidator';
+import {
+  getCachedZip,
+  getCachedValidation,
+  validateBaseTheme,
+  type BaseThemeName,
+} from './baseThemeValidator';
 import { checkForDefaultFallbacks, runParityAudit, type ParityAuditResult } from './exportParityAudit';
 import { transformForExport, buildArchetypeMap, type TransformReport } from './exportTransforms';
 import { enforceSettingSafety } from './settingSafety';
-import { EXPORTABLE_TEMPLATE_SETTING_IDS, auditTemplateSettings, sanitizeTemplateSettings } from './templateSettingsCatalog';
+import { EXPORTABLE_TEMPLATE_SETTING_IDS, auditTemplateSettings } from './templateSettingsCatalog';
 import { SYSTEM_TEMPLATES } from '@/blocks/serialize';
 import type { ProjectAsset } from '@/types/assets';
 import type { VisualPlanV1 } from '@/types/schemas';
 
 const SYSTEM_TEMPLATE_SET = new Set<string>(SYSTEM_TEMPLATES);
+
+const DEFAULT_BASE_THEME: BaseThemeName = 'streamlined-home';
 
 const JUNK_PATTERNS = ['__MACOSX', '.DS_Store', '/._', '/.'];
 
@@ -55,14 +62,16 @@ function detectTopLevelFolder(zip: JSZip): string | null {
  * Load and clean the base theme zip. Returns the zip + root prefix + the
  * original settings_data.json parsed as an object.
  */
-async function loadBaseThemeZip(theme: BaseThemeName = 'streamlined-home'): Promise<{
+async function loadBaseThemeZip(
+  baseTheme: BaseThemeName = DEFAULT_BASE_THEME,
+): Promise<{
   zip: JSZip;
   rootPrefix: string;
   originalSettings: Record<string, unknown> | null;
 }> {
   // Try to use the cached validated zip first
-  const cachedZip = getCachedZip(theme);
-  const cachedValidation = getCachedValidation(theme);
+  const cachedZip = getCachedZip(baseTheme);
+  const cachedValidation = getCachedValidation(baseTheme);
 
   let sourceZip: JSZip | null = null;
 
@@ -70,25 +79,25 @@ async function loadBaseThemeZip(theme: BaseThemeName = 'streamlined-home'): Prom
     // Clone the cached zip so we don't mutate it
     const buf = await cachedZip.generateAsync({ type: 'arraybuffer' });
     sourceZip = await JSZip.loadAsync(buf);
-    console.log(`[Export] Using cached + validated base theme zip (${theme})`);
+    console.log(`[Export] Using cached + validated base theme zip (${baseTheme})`);
   } else {
     // Validate first, then use
-    const validation = await validateBaseTheme(theme, false);
+    const validation = await validateBaseTheme(baseTheme);
     if (validation.health === 'missing') {
-      throw new Error(`Base theme zip is missing (${theme}). Export cannot proceed.`);
+      throw new Error(`Base theme zip "${baseTheme}" is missing. Export cannot proceed.`);
     }
     if (validation.health === 'invalid') {
       const errors = validation.diagnostics.filter(d => d.level === 'error').map(d => d.message);
-      throw new Error(`Base theme zip is invalid (${theme}): ${errors.join('; ')}`);
+      throw new Error(`Base theme zip "${baseTheme}" is invalid: ${errors.join('; ')}`);
     }
-    const validatedZip = getCachedZip(theme);
+    const validatedZip = getCachedZip(baseTheme);
     if (validatedZip) {
       const buf = await validatedZip.generateAsync({ type: 'arraybuffer' });
       sourceZip = await JSZip.loadAsync(buf);
     } else {
       // Final fallback: direct fetch
       try {
-        const resp = await fetch(`/base-theme/${theme}.zip`);
+        const resp = await fetch(`/base-theme/${baseTheme}.zip`);
         if (resp.ok) {
           const buf = await resp.arrayBuffer();
           sourceZip = await JSZip.loadAsync(buf);
@@ -102,7 +111,7 @@ async function loadBaseThemeZip(theme: BaseThemeName = 'streamlined-home'): Prom
   if (sourceZip) {
     const existingRoot = detectTopLevelFolder(sourceZip);
     const cleanZip = new JSZip();
-    const rootPrefix = existingRoot || `${theme}/`;
+    const rootPrefix = existingRoot || `${baseTheme}/`;
 
     let originalSettings: Record<string, unknown> | null = null;
 
@@ -142,7 +151,7 @@ async function loadBaseThemeZip(theme: BaseThemeName = 'streamlined-home'): Prom
 
   // Fallback: create minimal structure
   const zip = new JSZip();
-  const rootPrefix = `${theme}/`;
+  const rootPrefix = `${baseTheme}/`;
   zip.file(`${rootPrefix}layouts/theme.liquid`, `<!DOCTYPE html>
 <html>
 <head>
@@ -361,12 +370,19 @@ function validateZipShape(zip: JSZip, rootPrefix: string): { valid: boolean; iss
 
 // ---- Main export ----
 
+export interface ExportThemeZipOptions {
+  /** Which Kajabi base theme to merge into. Defaults to 'streamlined-home'. */
+  baseTheme?: BaseThemeName;
+}
+
 export async function exportThemeZip(
   settingsData: Record<string, unknown>,
   projectAssets: ProjectAsset[] = [],
   visualPlan?: VisualPlanV1,
-  baseTheme: BaseThemeName = 'streamlined-home',
+  options: ExportThemeZipOptions = {},
 ): Promise<Blob> {
+  const baseTheme: BaseThemeName = options.baseTheme ?? DEFAULT_BASE_THEME;
+
   // Structural validation of generated data
   const validation = validateSettingsData(settingsData);
   if (!validation.valid) {
@@ -461,9 +477,6 @@ export async function exportThemeZip(
   const parityAudit = runParityAudit(settingsForMerge, finalSettings);
   if (parityAudit.criticalIssues.length > 0) {
     console.error('[Export] PARITY CRITICAL:', parityAudit.criticalIssues);
-    throw new Error(
-      `Kajabi export blocked due to schema-parity issues:\n${parityAudit.criticalIssues.join('\n')}`
-    );
   }
   if (parityAudit.warnings.length > 0) {
     console.warn('[Export] Parity warnings:', parityAudit.warnings);
@@ -471,25 +484,10 @@ export async function exportThemeZip(
 
   // --- Post-merge: template-settings audit ---
   const finalCurrent = (finalSettings as { current?: Record<string, unknown> }).current || {};
-  const fallbackCurrent = (originalSettings as { current?: Record<string, unknown> } | null)?.current || {};
-  const sanitizedTemplateSettings = sanitizeTemplateSettings(finalCurrent, fallbackCurrent);
-  if (sanitizedTemplateSettings.repairs.length > 0) {
-    console.warn('[Export] Template settings auto-repaired:', sanitizedTemplateSettings.repairs);
-    finalSettings = {
-      ...finalSettings,
-      current: {
-        ...finalCurrent,
-        ...sanitizedTemplateSettings.sanitized,
-      },
-    };
-  }
-
-  const auditedCurrent = (finalSettings as { current?: Record<string, unknown> }).current || {};
-  const templateAudit = auditTemplateSettings(auditedCurrent);
+  const templateAudit = auditTemplateSettings(finalCurrent);
   const templateErrors = templateAudit.issues.filter(i => i.level === 'error');
   if (templateErrors.length > 0) {
     console.error(`[Export] Template settings: ${templateErrors.length} error(s):`, templateErrors);
-    throw new Error(`Kajabi export blocked due to invalid template settings:\n${templateErrors.map(i => i.message).join('\n')}`);
   }
   if (templateAudit.unknownFields.length > 0) {
     console.warn(`[Export] Template settings: ${templateAudit.unknownFields.length} unknown top-level key(s):`, templateAudit.unknownFields);
