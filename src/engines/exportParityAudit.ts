@@ -153,6 +153,7 @@ function auditBlock(
   blockId: string,
   internalBlock: { type: string; settings: Record<string, unknown> } | undefined,
   exportedBlock: { type: string; settings: Record<string, unknown> } | undefined,
+  sectionRole: 'header' | 'footer' | 'section' = 'section',
 ): BlockParity {
   const blockType = internalBlock?.type || exportedBlock?.type || 'unknown';
   const fields: FieldParity[] = [];
