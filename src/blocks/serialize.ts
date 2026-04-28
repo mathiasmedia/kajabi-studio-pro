@@ -238,7 +238,34 @@ function buildSectionSettings(layout: SectionLayoutProps, flavor: SectionFlavor)
         else if (layout.showDots === true) settings.show_dots = 'true';
         if (layout.dotColor) settings.dot_color = layout.dotColor;
         // slider_preset controls dot/arrow alignment ("default"=centered, "modern"=dots-left/arrows-right).
-        if (layout.sliderPreset) settings.slider_preset = layout.sliderPreset;
+        // CRITICAL: Always emit this field. The Pro section.liquid composes its outer class as
+        // `slider-preset-{{ section.settings.slider_preset }}` — when the field is missing,
+        // the class becomes `slider-preset-` (empty), and NEITHER preset's CSS targets the
+        // arrows/dots. Result: arrows render in the DOM but with no positioning rules, so
+        // they're invisible (or clipped by `hide_overflow`). The schema default of "modern"
+        // only applies when Kajabi creates a fresh section in its UI, not when we omit the
+        // key from settings_data.json.
+        settings.slider_preset = layout.sliderPreset || 'modern';
+        if (layout.spaceBetweenDesktop != null) settings.space_between_slide_blocks = String(layout.spaceBetweenDesktop);
+        if (layout.spaceBetweenMobile != null) settings.space_between_slide_blocks_mobile = String(layout.spaceBetweenMobile);
+      }
+
+      // ---- Pro-only multi-column layout ----
+      // Verified field IDs from streamlined-home-pro/sections/section.liquid:
+      //   multiple_columns_on_desktop: "no" | "two" | "three"
+      //   column_one_width / column_two_width / column_three_width (grid type, fr units, default "4")
+      //   multiple_column_gap (px, 0-150, default 0; runtime adds +15)
+      //   slider_column: "first" | "second" | "third" (only used when enable_slider also on)
+      if (layout.columns && layout.columns >= 2) {
+        settings.multiple_columns_on_desktop = layout.columns === 3 ? 'three' : 'two';
+        const widths = layout.columnWidths ?? (layout.columns === 3 ? [4, 4, 4] : [4, 4]);
+        if (widths[0] != null) settings.column_one_width = String(widths[0]);
+        if (widths[1] != null) settings.column_two_width = String(widths[1]);
+        if (layout.columns === 3 && widths[2] != null) settings.column_three_width = String(widths[2]);
+        if (layout.columnGap != null) settings.multiple_column_gap = String(layout.columnGap);
+        if (layout.sliderColumn) {
+          settings.slider_column = layout.sliderColumn === 3 ? 'third' : layout.sliderColumn === 2 ? 'second' : 'first';
+        }
       }
     }
   }
@@ -408,6 +435,11 @@ function walkSection(el: ReactElement): SerializedSection {
   const blocks: Record<string, KajabiBlock> = {};
   const blockOrder: string[] = [];
 
+  // Pro multi-column: when section.columns >= 2, every block gets a `block_column`
+  // setting that the column_one/two/three.liquid snippets filter on. Read the
+  // optional `column` prop from each block element (1|2|3) and emit "first"/"second"/"third".
+  const proColumnsActive = isProTheme() && !!props.columns && props.columns >= 2;
+
   // Recursively walk the section's subtree so block components nested inside
   // layout wrappers (e.g. <div style={{display:'grid'}}>...</div>) are still
   // collected. Preview wrappers are presentational only — they don't exist in
@@ -427,6 +459,12 @@ function walkSection(el: ReactElement): SerializedSection {
         let blockSettings = ChildType.serialize(child.props as Record<string, unknown>);
         if (flavor === 'header' || flavor === 'footer') {
           blockSettings = stripContentGridFields(blockSettings);
+        }
+        if (proColumnsActive) {
+          const colProp = (child.props as Record<string, unknown>)?.column;
+          const colNum = Number(colProp) || 1;
+          const clamped = Math.min(Math.max(colNum, 1), props.columns!) as 1 | 2 | 3;
+          blockSettings.block_column = clamped === 3 ? 'third' : clamped === 2 ? 'second' : 'first';
         }
         const blockId = nextBlockId();
         blocks[blockId] = {

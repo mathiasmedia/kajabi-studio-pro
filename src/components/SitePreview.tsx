@@ -16,6 +16,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Site } from '@/lib/siteStore';
 import { renderDesign } from '@/lib/siteDesign/render';
+import { resolvePreviewFonts } from '@/lib/siteDesign/resolvePreviewFonts';
 
 const RENDER_WIDTH = 1280;
 const RENDER_HEIGHT = 800;
@@ -71,55 +72,78 @@ export function SitePreview({ site }: { site: Site }) {
   }, [site.design?.customCss, scopeClass]);
 
   // Inject Google Fonts + family rules per-instance, scoped to this tile.
+  // Honors Pro themeSettings custom-font slots so thumbnails match the
+  // exported Kajabi site (not just design.fonts.heading/body).
   useEffect(() => {
-    const fonts = site.design?.fonts;
-    if (!fonts) return;
-    const cleanName = (name?: string) => (name ? name.split(':')[0].trim() : '');
-    const families: string[] = [];
-    const seen = new Set<string>();
-    const add = (name?: string) => {
-      const key = cleanName(name);
-      if (!key || seen.has(key.toLowerCase())) return;
-      seen.add(key.toLowerCase());
-      families.push(`${key.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`);
-    };
-    add(fonts.heading);
-    add(fonts.body);
-    fonts.extras?.forEach(add);
-    if (families.length === 0) return;
+    const resolved = resolvePreviewFonts(site.design ?? null);
+    if (!resolved) return;
+    const { headingFamily, bodyFamily, googleFamilies, rawLinkTags } = resolved;
+    const cleanupNodes: HTMLElement[] = [];
 
-    const href = `https://fonts.googleapis.com/css2?${families
-      .map((f) => `family=${f}`)
-      .join('&')}&display=swap`;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = href;
-    link.dataset.thumbFonts = scopeClass;
-    document.head.appendChild(link);
+    if (googleFamilies.length > 0) {
+      const families = googleFamilies.map((k) =>
+        `${k.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`,
+      );
+      const href = `https://fonts.googleapis.com/css2?${families
+        .map((f) => `family=${f}`)
+        .join('&')}&display=swap`;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.thumbFonts = scopeClass;
+      document.head.appendChild(link);
+      cleanupNodes.push(link);
+    }
 
-    const headingName = cleanName(fonts.heading);
-    const bodyName = cleanName(fonts.body);
-    const headingStack = headingName ? `'${headingName}', Georgia, serif` : null;
-    const bodyStack = bodyName
-      ? `'${bodyName}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+    rawLinkTags.forEach((href) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.thumbFonts = scopeClass;
+      document.head.appendChild(link);
+      cleanupNodes.push(link);
+    });
+
+    const headingStack = headingFamily ? `'${headingFamily}', Georgia, serif` : null;
+    const bodyStack = bodyFamily
+      ? `'${bodyFamily}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
       : null;
-    const style = document.createElement('style');
-    style.dataset.thumbFonts = scopeClass;
-    style.textContent = [
-      bodyStack ? `.${scopeClass}, .${scopeClass} * { font-family: ${bodyStack}; }` : '',
-      headingStack
-        ? `.${scopeClass} :is(h1,h2,h3,h4,h5,h6), .${scopeClass} :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }`
-        : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    document.head.appendChild(style);
+    if (headingStack || bodyStack || resolved.overrideCss) {
+      const style = document.createElement('style');
+      style.dataset.thumbFonts = scopeClass;
+      const scope = `.${scopeClass}`;
+      const scopeRules = (css: string) =>
+        css.replace(/(^|\})\s*([^{}@]+?)\s*\{/g, (_m, brace, sel) => {
+          const scoped = sel.split(',').map((s: string) => `${scope} ${s.trim()}`).join(', ');
+          return `${brace} ${scoped} {`;
+        });
+      const scopedOverrides = resolved.overrideCss
+        ? resolved.overrideCss.replace(/@media[^{]+\{[^}]+\}\s*\}/g, (block) =>
+            block.replace(/(\{[^@}]*?)([a-zA-Z][^{}]*?)\s*\{/g, (_m, pre, sel) => {
+              const scoped = sel.split(',').map((s: string) => `${scope} ${s.trim()}`).join(', ');
+              return `${pre} ${scoped} {`;
+            }),
+          )
+        : '';
+      const topLevel = resolved.overrideCss.replace(/@media[^{]+\{[^}]+\}\s*\}/g, '').trim();
+      style.textContent = [
+        bodyStack ? `${scope}, ${scope} * { font-family: ${bodyStack}; }` : '',
+        headingStack
+          ? `${scope} :is(h1,h2,h3,h4,h5,h6), ${scope} :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }`
+          : '',
+        topLevel ? scopeRules(topLevel) : '',
+        scopedOverrides,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      document.head.appendChild(style);
+      cleanupNodes.push(style);
+    }
 
     return () => {
-      link.remove();
-      style.remove();
+      cleanupNodes.forEach((n) => n.remove());
     };
-  }, [site.design?.fonts, scopeClass]);
+  }, [site.design, scopeClass]);
 
   let content: React.ReactNode = null;
   try {
