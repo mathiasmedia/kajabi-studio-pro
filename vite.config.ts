@@ -20,6 +20,6 @@ export default defineConfig(({ mode }) => ({
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
   },
   optimizeDeps: {
-    exclude: ["@k-studio-pro/engine"],
+    include: ["@k-studio-pro/engine"],
   },
 }));
