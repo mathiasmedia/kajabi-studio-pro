@@ -310,7 +310,10 @@ function renderSlider(props: SectionLayoutProps, children: ReactNode): ReactNode
   const afterBlocks = all.slice(sliderEnd);
 
   const desktop = Number(props.slidesPerViewDesktop) || 1;
-  const mobile = Number(props.slidesPerViewMobile) || 1;
+  // Pro hardcodes mobile to 1 block per slide — there's no Kajabi setting for it.
+  const mobile = 1;
+  const spaceDesktop = Number(props.spaceBetweenDesktop) || 0;
+  const spaceMobile = Number(props.spaceBetweenMobile) || 0;
   const effect = props.sliderTransition || 'slide';
   const modules = [Navigation, Pagination];
   if (props.sliderAutoplay) modules.push(Autoplay);
@@ -353,8 +356,8 @@ function renderSlider(props: SectionLayoutProps, children: ReactNode): ReactNode
         <Swiper
           modules={modules}
           slidesPerView={mobile}
-          breakpoints={{ 768: { slidesPerView: desktop } }}
-          spaceBetween={28}
+          breakpoints={{ 768: { slidesPerView: desktop, spaceBetween: spaceDesktop } }}
+          spaceBetween={spaceMobile}
           speed={Number(props.sliderSpeed) || 500}
           loop={!!props.sliderLoop}
           effect={effect}
@@ -367,10 +370,11 @@ function renderSlider(props: SectionLayoutProps, children: ReactNode): ReactNode
           navigation={
             showArrows
               ? isModern
-                ? { nextEl: '.modern-arrows .swiper-button-next', prevEl: '.modern-arrows .swiper-button-prev' }
-                : true
+                ? { nextEl: '.modern-arrows .swiper-button-next', prevEl: '.modern-arrows .swiper-button-prev', hideOnClick: false, disabledClass: 'swiper-button-disabled' }
+                : { hideOnClick: false, disabledClass: 'swiper-button-disabled' }
               : false
           }
+          watchOverflow={false}
           pagination={
             showDots
               ? isModern
@@ -433,11 +437,15 @@ function renderSlider(props: SectionLayoutProps, children: ReactNode): ReactNode
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                opacity: 1,
+                visibility: 'visible',
               } as CSSProperties}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
+              <span className="slider-arrow-icon" aria-hidden="true" style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+                  <polyline points="15 18 9 12 15 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
             </button>
             <button
               type="button"
@@ -456,11 +464,15 @@ function renderSlider(props: SectionLayoutProps, children: ReactNode): ReactNode
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                opacity: 1,
+                visibility: 'visible',
               } as CSSProperties}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
+              <span className="slider-arrow-icon" aria-hidden="true" style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+                  <polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
             </button>
           </div>
         )}
@@ -470,12 +482,57 @@ function renderSlider(props: SectionLayoutProps, children: ReactNode): ReactNode
   );
 }
 
+/**
+ * Group flat block children into N columns based on each block's `column` prop
+ * (1, 2, or 3 — defaults to 1). Mirrors Pro's column_one/two/three.liquid which
+ * filters `section.blocks` by `block.settings.block_column`.
+ */
+function renderColumns(props: SectionLayoutProps, children: ReactNode): ReactNode {
+  const cols = Math.min(Math.max(Number(props.columns) || 1, 2), 3);
+  const widths = props.columnWidths ?? (cols === 3 ? [4, 4, 4] : [4, 4]);
+  const gap = (Number(props.columnGap) || 0) + 15; // matches Liquid: `multiple_column_gap | plus: 15`
+  const flat = flattenBlockChildren(children);
+  const buckets: ReactNode[][] = Array.from({ length: cols }, () => []);
+  for (const node of flat) {
+    let col = 1;
+    if (isValidElement(node)) {
+      const c = Number((node.props as Record<string, unknown>)?.column) || 1;
+      col = Math.min(Math.max(c, 1), cols);
+    }
+    buckets[col - 1].push(node);
+  }
+  const gridTemplate = widths.slice(0, cols).map((w) => `${w}fr`).join(' ');
+  return (
+    <div
+      className="multiple-columns"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: gridTemplate,
+        columnGap: `${gap}px`,
+        rowGap: `${gap}px`,
+        alignItems: props.vertical === 'top' ? 'start' : props.vertical === 'bottom' ? 'end' : 'center',
+      }}
+    >
+      {buckets.map((items, i) => (
+        <div key={`pcol-${i}`} className={['first-column', 'second-column', 'third-column'][i]}>
+          {wrapContentChildren(items)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const ContentSection: SectionComponent = (props) => {
   const useSlider = !!props.enableSlider;
+  const useColumns = !!props.columns && props.columns >= 2;
   return (
     <section style={buildSectionStyle(props)} className={props.customCssClass || undefined}>
       <div style={innerStyle(props)}>
-        {useSlider ? renderSlider(props, props.children) : wrapContentChildren(props.children)}
+        {useSlider
+          ? renderSlider(props, props.children)
+          : useColumns
+            ? renderColumns(props, props.children)
+            : wrapContentChildren(props.children)}
       </div>
     </section>
   );

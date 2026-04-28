@@ -163,6 +163,33 @@ export interface ContentSectionProps extends CommonSectionProps {
    * are no separate `dot_align` / `arrow_align` fields in section.liquid.
    */
   sliderPreset?: 'default' | 'modern';
+  /** Px gap between slides (desktop) → settings.space_between_slide_blocks. Pro default 0. */
+  spaceBetweenDesktop?: number | string;
+  /** Px gap between slides (mobile) → settings.space_between_slide_blocks_mobile. Pro default 0. */
+  spaceBetweenMobile?: number | string;
+
+  // ---- Pro-only multi-column layout (silently dropped on Standard themes) ----
+  /**
+   * Pro-only — split section into 2 or 3 desktop columns.
+   * Maps to `multiple_columns_on_desktop`: 1 → "no", 2 → "two", 3 → "three".
+   * Mobile collapses 1 → 2 → 3 automatically (Kajabi runtime behavior).
+   * Per-block `column: 1|2|3` assigns each block to its column (default 1).
+   * Verified against Pro `sections/section.liquid`.
+   */
+  columns?: 1 | 2 | 3;
+  /**
+   * Per-column widths in `fr` units, one entry per column. Defaults to "4,4" / "4,4,4".
+   * Examples: [6,6] for even split, [4,8] for sidebar layouts, [3,9] for narrow sidebar.
+   * Maps to `column_one_width` / `column_two_width` / `column_three_width`.
+   */
+  columnWidths?: number[];
+  /** Px gap between columns (0–150) → settings.multiple_column_gap. */
+  columnGap?: number | string;
+  /**
+   * Which column hosts the slider when `enableSlider` AND `columns >= 2` are both set.
+   * 1 → "first", 2 → "second", 3 → "third". Default 1.
+   */
+  sliderColumn?: 1 | 2 | 3;
 }
 
 /**
