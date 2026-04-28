@@ -36,8 +36,10 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Max</h1>
-            <p className="text-xs text-muted-foreground">Build, save, and export Kajabi themes.</p>
+            <h1 className="m-0 text-lg font-semibold leading-tight">Studio Pro</h1>
+            <p className="m-0 text-xs leading-tight text-muted-foreground">
+              Build, save, and export Kajabi themes.
+            </p>
           </div>
         </button>
         <div className="flex items-center gap-2">
@@ -86,4 +88,3 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
     </header>
   );
 }
-
