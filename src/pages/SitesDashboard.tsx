@@ -61,6 +61,8 @@ import {
   ChevronDown,
   Pin,
   PinOff,
+  Wand2,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -78,7 +80,7 @@ function timeAgo(iso: string): string {
   return `${d}d ago`;
 }
 
-type CreateMode = null | 'site' | 'landing_page';
+type CreateMode = null | 'site' | 'landing_page' | 'clone';
 type TabKind = 'site' | 'landing_page';
 
 const DEFAULT_TAB_PREF_PREFIX = 'workspace.defaultTab.';
@@ -100,7 +102,6 @@ export default function SitesDashboard() {
   const [activeTab, setActiveTab] = useState<TabKind>('site');
   const [defaultTab, setDefaultTabState] = useState<TabKind>('site');
 
-  // Load saved default-tab preference once we know the user.
   useEffect(() => {
     if (!user?.id) return;
     try {
@@ -110,7 +111,6 @@ export default function SitesDashboard() {
         setActiveTab(saved);
       }
     } catch {
-      // ignore (private mode, etc.)
     }
   }, [user?.id]);
 
@@ -120,7 +120,6 @@ export default function SitesDashboard() {
     try {
       localStorage.setItem(DEFAULT_TAB_PREF_PREFIX + user.id, next);
     } catch {
-      // ignore
     }
     toast({
       title: 'Default updated',
@@ -130,7 +129,6 @@ export default function SitesDashboard() {
           : 'Landing pages will open by default next time.',
     });
   }
-
 
   async function refresh() {
     const [sites, lps] = await Promise.all([
@@ -145,7 +143,6 @@ export default function SitesDashboard() {
     refresh();
   }, []);
 
-  // Realtime: refresh on any sites or site_images change.
   useEffect(() => {
     const channel = supabase
       .channel('workspace-dashboard')
@@ -165,7 +162,6 @@ export default function SitesDashboard() {
     };
   }, []);
 
-  // When admin, look up owner emails for the visible items.
   useEffect(() => {
     const allItems = [...websites, ...landingPages];
     if (!isAdmin || allItems.length === 0) {
@@ -241,6 +237,7 @@ export default function SitesDashboard() {
           <NewMenu
             onNewSite={() => setCreateMode('site')}
             onNewLandingPage={() => setCreateMode('landing_page')}
+            onCloneSite={() => setCreateMode('clone')}
           />
         }
       />
@@ -334,6 +331,17 @@ export default function SitesDashboard() {
         onCreate={handleCreateLandingPage}
       />
 
+      <CloneSiteDialog
+        open={createMode === 'clone'}
+        onOpenChange={(o) => !o && setCreateMode(null)}
+        onCloned={async (siteId, sourceUrl) => {
+          await refresh();
+          setCreateMode(null);
+          const qs = sourceUrl ? `?clonePrompt=${encodeURIComponent(sourceUrl)}` : '';
+          navigate(`/sites/${siteId}${qs}`);
+        }}
+      />
+
       <RenameDialog
         site={renameTarget}
         onOpenChange={(o) => !o && setRenameTarget(null)}
@@ -365,14 +373,14 @@ export default function SitesDashboard() {
   );
 }
 
-// ---------- pieces ----------
-
 function NewMenu({
   onNewSite,
   onNewLandingPage,
+  onCloneSite,
 }: {
   onNewSite: () => void;
   onNewLandingPage: () => void;
+  onCloneSite: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -403,6 +411,21 @@ function NewMenu({
           </div>
           <span className="pl-6 text-xs text-muted-foreground">
             Single page with one promise + one CTA. Custom URL slug.
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onCloneSite} className="flex-col items-start gap-1 py-3">
+          <div className="flex w-full items-center gap-2">
+            <Wand2 className="h-4 w-4 text-primary" />
+            <span className="font-medium">
+              Clone from URL{' '}
+              <span className="ml-0.5 rounded-sm bg-primary/15 px-1 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wide text-primary">
+                Beta
+              </span>
+            </span>
+          </div>
+          <span className="pl-6 text-xs text-muted-foreground">
+            Paste any website URL. We scrape it and build a Kajabi site that matches.
           </span>
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -492,7 +515,6 @@ function WorkspaceTabs({
     </div>
   );
 }
-
 
 function DashboardSection({
   icon,
@@ -791,7 +813,6 @@ function CreateLandingPageDialog({
     }
   }, [open]);
 
-  // Auto-derive slug from name unless user has typed in the slug field.
   useEffect(() => {
     if (!slugDirty) setSlug(slugify(name));
   }, [name, slugDirty]);
@@ -858,18 +879,6 @@ function CreateLandingPageDialog({
   );
 }
 
-/**
- * Standard / Pro tier toggle used in both create dialogs. The chosen tier
- * maps to the underlying Kajabi base-theme zip (set once at creation; never
- * mutated by the editor — see AGENTS.md base-theme rules).
- *
- *   site         → streamlined-home    | streamlined-home-pro
- *   landing_page → encore-page         | encore-page-pro
- *
- * Pro themes are 100% backward compatible (additive blocks + section
- * settings: sliders, animations, column layouts, search/filter blocks,
- * Pro footer). Existing sites are unaffected.
- */
 function TierToggle({
   value,
   onChange,
@@ -974,6 +983,263 @@ function RenameDialog({
             Cancel
           </Button>
           <Button onClick={() => site && name.trim() && onRename(site.id, name.trim())}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type SiteKindChoice = 'site' | 'landing_page';
+type ProChoice = 'standard' | 'pro';
+
+function deriveSiteName(url: string): string {
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./, '');
+    const root = host.split('.')[0] || host;
+    return root.charAt(0).toUpperCase() + root.slice(1);
+  } catch {
+    return 'Cloned site';
+  }
+}
+
+function CloneSiteDialog({
+  open,
+  onOpenChange,
+  onCloned,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCloned: (siteId: string, sourceUrl: string) => Promise<void> | void;
+}) {
+  const [url, setUrl] = useState('');
+  const [name, setName] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
+  const [kind, setKind] = useState<SiteKindChoice>('site');
+  const [tier, setTier] = useState<ProChoice>('pro');
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (open) {
+      setUrl('');
+      setName('');
+      setNameTouched(false);
+      setKind('site');
+      setTier('pro');
+      setBusy(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!nameTouched) {
+      setName(url.trim() ? deriveSiteName(url.trim()) : '');
+    }
+  }, [url, nameTouched]);
+
+  const trimmedUrl = url.trim();
+  const trimmedName = name.trim();
+  const canCreate = !!trimmedUrl && !!trimmedName && !busy;
+
+  async function handleCreate() {
+    if (!canCreate) return;
+    setBusy(true);
+    try {
+      const normalizedUrl = /^https?:\/\//i.test(trimmedUrl)
+        ? trimmedUrl
+        : `https://${trimmedUrl}`;
+
+      let siteId: string | undefined;
+      if (kind === 'site') {
+        const baseTheme = tier === 'pro' ? 'streamlined-home-pro' : 'streamlined-home';
+        const site = await createSite({
+          name: trimmedName,
+          brandName: trimmedName,
+          baseTheme,
+        });
+        siteId = site?.id;
+      } else {
+        const baseTheme = tier === 'pro' ? 'encore-page-pro' : 'encore-page';
+        const page = await createLandingPage({
+          name: trimmedName,
+          brandName: trimmedName,
+          slug: slugify(trimmedName),
+          baseTheme,
+        });
+        siteId = page?.id;
+      }
+
+      if (!siteId) {
+        toast({
+          title: 'Could not create site',
+          description: 'Something went wrong. Try again.',
+          variant: 'destructive',
+        });
+        setBusy(false);
+        return;
+      }
+
+      await onCloned(siteId, normalizedUrl);
+    } catch (e) {
+      toast({
+        title: 'Could not create site',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      });
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (busy) return;
+        onOpenChange(o);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wand2 className="h-5 w-5 text-primary" /> Clone a site from URL
+          </DialogTitle>
+          <DialogDescription>
+            We'll create a blank site with your chosen base theme, then hand off
+            to chat — the AI will scrape, screenshot, and design the site
+            page-by-page with you.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="clone-url">Source URL</Label>
+            <Input
+              id="clone-url"
+              autoFocus
+              placeholder="https://example.com"
+              value={url}
+              disabled={busy}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="clone-name">Site name</Label>
+            <Input
+              id="clone-name"
+              placeholder="Acme"
+              value={name}
+              disabled={busy}
+              onChange={(e) => {
+                setNameTouched(true);
+                setName(e.target.value);
+              }}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>Type</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setKind('site')}
+                disabled={busy}
+                className={
+                  'flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ' +
+                  (kind === 'site'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50')
+                }
+              >
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Globe className="h-4 w-4" /> Website
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Multi-page (home, about, etc.)
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setKind('landing_page')}
+                disabled={busy}
+                className={
+                  'flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ' +
+                  (kind === 'landing_page'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50')
+                }
+              >
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Rocket className="h-4 w-4" /> Landing page
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Single page, one CTA
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>Base theme</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setTier('standard')}
+                disabled={busy}
+                className={
+                  'flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ' +
+                  (tier === 'standard'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50')
+                }
+              >
+                <div className="text-sm font-medium">Standard</div>
+                <span className="text-[11px] text-muted-foreground">
+                  Core blocks only
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTier('pro')}
+                disabled={busy}
+                className={
+                  'flex flex-col items-start gap-1 rounded-md border p-3 text-left transition-colors ' +
+                  (tier === 'pro'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-primary/50')
+                }
+              >
+                <div className="text-sm font-medium">
+                  Pro{' '}
+                  <span className="ml-0.5 rounded-sm bg-primary/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                    Recommended
+                  </span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  Sliders, tabs, custom fonts
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={busy}
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleCreate} disabled={!canCreate}>
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Creating…
+              </>
+            ) : (
+              <>
+                <Wand2 className="h-4 w-4" /> Create &amp; open editor
+              </>
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
