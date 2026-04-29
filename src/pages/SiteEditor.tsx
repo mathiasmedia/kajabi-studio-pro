@@ -6,7 +6,7 @@
  * multi-page tree as a Kajabi zip.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { exportFromTree, triggerDownload } from '@k-studio-pro/engine';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Download, Link2, Pencil } from 'lucide-react';
+import { ArrowLeft, Download, Link2, Pencil, Wand2, Copy as CopyIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { persistExportZip, formatRelativeTime } from '@/lib/exportPersistence';
 
@@ -61,6 +61,8 @@ export default function SiteEditor() {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [images, setImages] = useState<SiteImage[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const clonePrompt = searchParams.get('clonePrompt');
 
   useEffect(() => {
     if (!siteId) return;
@@ -420,6 +422,22 @@ export default function SiteEditor() {
         </div>
       </div>
 
+      {/* Clone-from-URL handoff banner — shown once when the dashboard hands
+          off via ?clonePrompt=<url>. We DON'T clone with an edge function;
+          the actual scraping/screenshotting/design work happens in chat with
+          the AI (which has vision, iteration, and full AGENTS.md context). */}
+      {clonePrompt && (
+        <ClonePromptBanner
+          sourceUrl={clonePrompt}
+          siteName={site.name}
+          onDismiss={() => {
+            const next = new URLSearchParams(searchParams);
+            next.delete('clonePrompt');
+            setSearchParams(next, { replace: true });
+          }}
+        />
+      )}
+
       {/* Preview */}
       <div className="preview-root">
         {PreviewPage ?? (
@@ -489,5 +507,98 @@ function SlugField({
       <span>/{initial || 'no-slug'}</span>
       <Pencil className="h-3 w-3" />
     </button>
+  );
+}
+
+
+/**
+ * Clone-from-URL handoff banner.
+ *
+ * The dashboard's "Clone from URL" creates an empty site and navigates here
+ * with `?clonePrompt=<url>`. This banner gives the expert a one-click way to
+ * copy a ready-made instruction into Lovable's chat — where the AI actually
+ * does the cloning (it can scrape, screenshot, generate images, iterate, and
+ * apply every rule in AGENTS.md). A one-shot edge function with no vision
+ * and no iteration produces generic results, which is why we don't do that.
+ */
+function ClonePromptBanner({
+  sourceUrl,
+  siteName,
+  onDismiss,
+}: {
+  sourceUrl: string;
+  siteName: string;
+  onDismiss: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const promptText = `Clone ${sourceUrl} into this site ("${siteName}").
+
+Steps:
+1. Fetch the homepage with code--fetch_website (markdown + screenshot) so you can SEE the design.
+2. Identify the brand: colors, typography, voice, key sections. Pick a Pro font pairing.
+3. Discover inner pages from the homepage links — fetch about, services/programs, contact (whichever exist).
+4. Build the site page-by-page using get-site-design → mutate → update-site-design. Generate hero/section imagery via generate-site-image as you go.
+5. Follow AGENTS.md strictly: §4.10 dynamic pages, §4.7 CTA consistency, §9 Pro theme rules, §4.23 white-on-white blocks, §4.13 footer copyright.
+6. After each page, pause and show me what you built before moving on.`;
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(promptText);
+      setCopied(true);
+      toast.success('Prompt copied — paste it into chat');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Copy failed — select the text manually');
+    }
+  }
+
+  return (
+    <div className="border-b border-primary/20 bg-primary/5 px-4 py-3">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <Wand2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">
+              Ready to clone{' '}
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline underline-offset-2"
+              >
+                {sourceUrl}
+              </a>
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Click <span className="font-medium">Copy clone prompt</span> below,
+              then paste it into Lovable's chat. The AI will scrape, screenshot,
+              and design the site with you page-by-page.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleCopy}>
+            {copied ? (
+              <>
+                <CopyIcon className="h-4 w-4" /> Copied
+              </>
+            ) : (
+              <>
+                <CopyIcon className="h-4 w-4" /> Copy clone prompt
+              </>
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onDismiss}
+            title="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -21,7 +21,16 @@ import { resolvePreviewFonts } from '@/lib/siteDesign/resolvePreviewFonts';
 const RENDER_WIDTH = 1280;
 const RENDER_HEIGHT = 800;
 const AT_RULE_BLOCK_RE = /@(media|supports|container|layer)[^{]+\{[\s\S]*?\}\s*\}/g;
-const TOP_LEVEL_RULE_RE = /(^|\})\s*([^@{}][^{}]*)\{/g;
+// Matches a top-level rule's selector list. The first selector char must be a
+// non-whitespace, non-`@` character so we don't accidentally swallow a sibling
+// `@media (...)` block as if it were a selector. Earlier version `[^@{}]`
+// allowed `\n` as the first char, which made `}\n@media (...) {` match —
+// scoping then prefixed the `@media` with the scope class, producing
+// `.scope @media (...) {` which browsers ignore. Result: any second media
+// query (e.g. the Pro per-element font-size override that follows the
+// Standard fallback) was silently dropped, and headings rendered at the
+// Standard 48px instead of the Pro template's 76px.
+const TOP_LEVEL_RULE_RE = /(^|\})\s*([^@{}\s][^{}]*)\{/g;
 
 function scopeSelectorList(selectorList: string, scope: string) {
   return selectorList
@@ -104,8 +113,11 @@ export function SitePreview({ site }: { site: Site }) {
     const cleanupNodes: HTMLElement[] = [];
 
     if (googleFamilies.length > 0) {
+      // Request both upright + italic so headlines using <em> don't flash
+      // synthesized-italic glyph soup while the font is loading. ital,wght
+      // axis MUST list ital first (0=upright, 1=italic) per Google's API.
       const families = googleFamilies.map((k) =>
-        `${k.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`,
+        `${k.replace(/\s+/g, '+')}:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700`,
       );
       const href = `https://fonts.googleapis.com/css2?${families
         .map((f) => `family=${f}`)
