@@ -591,6 +591,47 @@ When a card-style block (`feature`, `pricing_card`, etc.) needs an "Explore →"
 
 ---
 
+### 4.18 Preview ↔ Kajabi shadow parity (verified 2026-04)
+
+The engine's `SHADOW_MAP` in `packages/engine/src/blocks/blockChrome.ts` MUST emit Kajabi's exact `box-shadow-{small|medium|large}` class values from `streamlined-home(-pro)/assets/styles.scss.liquid` lines 3052–3070:
+
+- `small`: `0 2px 10px 0 rgba(0, 0, 0, 0.05)`
+- `medium`: `0 4px 20px 0 rgba(0, 0, 0, 0.075)`
+- `large`: `0 10px 40px 0 rgba(0, 0, 0, 0.1)`
+
+These are SINGLE soft shadows, not double-layered Material-style shadows. If you change them to "look better" you'll silently desync the editor preview from the live Kajabi render. Symptom: accordion/card edges look heavier, sharper, or more dramatic in the preview than in the exported site. Whenever the expert reports "the shadow doesn't quite match what shipped", check this file first.
+
+If Kajabi ever updates these class values in a future base-theme version, re-extract from the current zip and update `SHADOW_MAP` in lockstep.
+
+### 4.19 PricingCard auto-themes for dark surfaces (verified 2026-04)
+
+`packages/engine/src/blocks/components/PricingCard.tsx` ships an `isDarkColor(hex|rgba)` helper that calculates luminance from the card's background and toggles:
+- `ink` → light (`#F4ECDC`) on dark surfaces, dark (`#111`) on light
+- `muted` → matching translucent
+
+Without this branching, dark-surface tier cards (e.g. a brand-color middle tier in a 3-up pricing grid) render black bullets/checkmarks/body copy on a near-black background — invisible. Same with the button: the outline branch MUST set `backgroundColor: 'transparent'` + `border: '1.5px solid {buttonBackground}'`, NOT default to a solid fill.
+
+`PricingCardProps` includes `buttonStyle: 'solid' | 'outline' | 'text'` and `buttonBorderRadius`. Always persist these on every `pricing_card` block in `design`, especially when authoring multi-tier grids where the highlighted tier inverts the palette. If the bullets/CTAs disappear on the highlighted tier, the regression is in the `isDarkColor` branch or the outline button renderer.
+
+### 4.20 Slider `transitionEffect: "fade"` stacks all blocks regardless of `blocksPerSlide`
+
+Swiper's `fade` effect crossfades between full-width slides — `blocksPerSlide` is effectively forced to 1 even if you set 3. Symptom: a testimonial slider with `blocksPerSlide: 3` + `transitionEffect: "fade"` shows ONE testimonial at a time, looking broken next to a sibling slider with the same `blocksPerSlide: 3` + `slide` effect that correctly renders 3-up.
+
+**Rules:**
+- Want a multi-up grid carousel → `transitionEffect: "slide"` (default) + `blocksPerSlide: 3` (or whatever).
+- Want fullscreen testimonial crossfade → `transitionEffect: "fade"` + `blocksPerSlide: 1`.
+- Never mix `fade` with `blocksPerSlide > 1` — the value is silently ignored and the section looks broken.
+
+Also: Pro's `section.liquid` forgets to set `fadeEffect.crossFade: true`, so even valid fade sliders need the CSS workaround that `export.ts` auto-injects when any section uses `transition_effect: "fade"`. Don't disable that workaround.
+
+### 4.21 Slider prop shorthand aliases — write the canonical name
+
+The engine accepts both shorthand (`blocksPerSlide`, `autoplay`, `loop`, `transitionEffect`, `transitionSpeed`) and canonical (`slidesPerViewDesktop`, `sliderAutoplay`, `sliderLoop`, `sliderTransition`, `sliderSpeed`) names — both `renderSlider` (in `sections.tsx`) and the serializer normalize via nullish coalescing. **Prefer the canonical name** in new code so future devs reading the JSON aren't confused; the shorthands exist only because legacy site data uses them.
+
+If you're adding a NEW slider prop, register both the alias and the canonical name in `sections.tsx → renderSlider` AND `serialize.ts` simultaneously — a missed alias silently falls back to a 1-per-slide, autoplay-off slider. See `mem://reference/slider-prop-shorthand-aliases.md`.
+
+---
+
 
 ## 5. How to talk to the expert
 
@@ -979,13 +1020,148 @@ The biggest reason to reach for Pro columns over the standard 12-col grid is **v
 
 ### 9.5 Pro tabs (sections-as-tabs)
 
-Mandatory order:
-1. Build each tab's content as its own separate `ContentSection` (siblings on the page).
-2. On EACH participating section: `use_as_tab: true`, unique lowercase `tab_slug` (e.g. `annual`, `monthly`), and `default_tab: true` on EXACTLY ONE.
-3. Add a `tabs` block in a section ABOVE the participating sections.
-4. Inside the `tabs` block, define each tab as `{ name, slug }` — slug MUST match `tab_slug` on the section. Up to 5 tabs.
+> Verified against `streamlined-home-pro/snippets/block_code_tabs.liquid` + `sections/section.liquid` (tab pane wrapping). Engine support landed in `@k-studio-pro/engine@0.1.3`.
 
-Style: `pills` (default) or `tabs`. Alignment left/center/right. `tab_fade_effect` is on by default — uncheck on each participating section for instant swaps. **Slug typos silently hide sections — always normalize to lowercase.**
+Pro tabs are **two cooperating pieces**: a `code_tabs` block that renders the tab strip, plus sibling `ContentSection`s flagged as tab panes. The tab block doesn't *contain* the panes — Kajabi (and our preview shim) match them up by slug.
+
+#### Authoring shape (React / engine props)
+
+```tsx
+import { ContentSection, Tabs, PricingCard } from '@k-studio-pro/engine';
+
+// 1. The tab strip — its own ContentSection ABOVE the panes.
+<ContentSection name="Pricing tabs">
+  <Tabs
+    style="pills"           // "pills" (default) or "tabs"
+    align="center"          // "left" | "center" | "right"
+    accentColor="#1F2A44"   // active pill / underline color (preview + Kajabi via custom CSS)
+    textColor="#475569"     // inactive tab label color
+    tabs={[
+      { name: 'Monthly', slug: 'monthly' },
+      { name: 'Yearly',  slug: 'yearly'  },
+    ]}
+  />
+</ContentSection>
+
+// 2. One ContentSection per pane — siblings, NOT children of the tabs section.
+<ContentSection name="Monthly pricing" useAsTab tabSlug="monthly" defaultTab>
+  <PricingCard ... />
+  <PricingCard ... />
+  <PricingCard ... />
+</ContentSection>
+
+<ContentSection name="Yearly pricing" useAsTab tabSlug="yearly">
+  <PricingCard ... />
+  <PricingCard ... />
+  <PricingCard ... />
+</ContentSection>
+```
+
+In raw `design` JSON the same thing looks like:
+
+```jsonc
+{
+  "kind": "content", "name": "Pricing tabs",
+  "blocks": [{
+    "type": "code_tabs",
+    "props": {
+      "style": "pills", "align": "center", "width": "12",
+      "accentColor": "#1F2A44", "textColor": "#475569",
+      "tabs": [
+        { "name": "Monthly", "slug": "monthly" },
+        { "name": "Yearly",  "slug": "yearly"  }
+      ]
+    }
+  }]
+},
+{ "kind": "content", "name": "Monthly pricing",
+  "props": { "useAsTab": true, "tabSlug": "monthly", "defaultTab": true },
+  "blocks": [/* PricingCards */] },
+{ "kind": "content", "name": "Yearly pricing",
+  "props": { "useAsTab": true, "tabSlug": "yearly" },
+  "blocks": [/* PricingCards */] }
+```
+
+#### Field mapping (engine prop → Kajabi `settings_data.json` field)
+
+**On the `code_tabs` block:**
+
+| React prop | Kajabi field | Values | Notes |
+|---|---|---|---|
+| `style` | `tabs_style` | `"pills"` \| `"tabs"` | default `"pills"` |
+| `align` | `tabs_align` | `"left"` \| `"center"` \| `"right"` | default `"center"` |
+| `tabs[N].name` | `first_tab_name` … `fifth_tab_name` | string | Up to 5 tabs |
+| `tabs[N].slug` | `first_tab_slug` … `fifth_tab_slug` | lowercase string | MUST match a pane's `tab_slug` |
+| `width` | `width` | `"1"`–`"12"` | default `"12"` |
+
+> The Kajabi snippet uses **flat `first_*` / `second_*` / … / `fifth_*` fields**, NOT an array. The engine's serializer flattens `tabs[]` for you — just write the array.
+
+**On each pane `ContentSection` (Pro section-level fields):**
+
+| React prop | Kajabi field | Values |
+|---|---|---|
+| `useAsTab` | `use_as_tab` | `"true"` |
+| `tabSlug` | `tab_slug` | lowercase string, unique among panes |
+| `defaultTab` | `default_tab` | `"true"` on EXACTLY ONE pane |
+
+#### Mandatory rules
+
+1. **Exactly one pane** must set `defaultTab: true` — otherwise nothing shows on first load.
+2. **Slugs are lowercase and must match exactly** between the `code_tabs` block and the pane sections. Typos silently hide panes (the section renders but with `display: none` and no tab button targets it).
+3. **The tabs block lives in its own section ABOVE the panes.** Don't mix tab content into the same section as the strip.
+4. **Up to 5 tabs.** The 6th `tabs[]` entry is silently dropped (Kajabi only has slots through `fifth_*`).
+5. **Pane sections render normally** when not in tab mode — drop `useAsTab` and they become regular sections again.
+6. **Pro-only.** On Standard sites the `code_tabs` block and `use_as_tab` field are silently dropped. Always check `resolveBaseTheme(site)` returns a `-pro` theme before composing tabs.
+7. **CTA consistency still applies (§4.7).** When tabs hold `pricing_card` or `cta` blocks across panes, every CTA across every pane must share the same brand button styling. Audit before saving.
+
+#### Runtime behavior
+
+- **Kajabi runtime:** `block_code_tabs.liquid` emits real Bootstrap 5 markup (`nav-pills`, `data-bs-toggle="tab"`, `data-bs-target="#section-<id>-tab-pane"`). The Pro theme loads `bootstrap.bundle.min.js` so tab switching works without extra JS.
+- **Editor preview:** the React `<Tabs>` component installs a click-delegator via `useEffect` that mimics Bootstrap's `tab` plugin (toggles `.show.active` + inline `display`) — Bootstrap isn't loaded in our preview iframe, but the DOM matches Kajabi's, so behavior is identical.
+- **Pane wrapping:** when a section has `useAsTab: true`, the engine wraps its rendered output in `<div class="tab-content"><div class="tab-pane fade" id="section-<id>-tab-pane">…</div></div>` — same wrapper Kajabi's `section.liquid` produces. This is what lets the slider re-init logic (§9.3) find sliders inside tabs.
+
+#### Worked example — Monthly / Yearly pricing toggle
+
+This is the canonical use case (and the one this engine version was tested against on site `af814adc`):
+
+```tsx
+<ContentSection name="Plans" paddingDesktop={{ top: '120', bottom: '40' }}>
+  <Text width="12" align="center"
+    text="<p style='...eyebrow...'>Pricing</p><h2>Choose your plan</h2><p>...</p>" />
+  <Tabs
+    style="pills" align="center" width="12"
+    accentColor="#1F2A44" textColor="#475569"
+    tabs={[
+      { name: 'Monthly',  slug: 'monthly' },
+      { name: 'Yearly · save 20%', slug: 'yearly' },
+    ]}
+  />
+</ContentSection>
+
+<ContentSection name="Monthly tier grid" useAsTab tabSlug="monthly" defaultTab
+  paddingDesktop={{ top: '0', bottom: '120' }}>
+  <PricingCard width="4" title="Starter" price="$29" priceCadence="/ mo" .../>
+  <PricingCard width="4" title="Pro"     price="$79" priceCadence="/ mo" .../>
+  <PricingCard width="4" title="Studio"  price="$199" priceCadence="/ mo" .../>
+</ContentSection>
+
+<ContentSection name="Yearly tier grid" useAsTab tabSlug="yearly"
+  paddingDesktop={{ top: '0', bottom: '120' }}>
+  <PricingCard width="4" title="Starter" price="$279" priceCadence="/ yr" .../>
+  <PricingCard width="4" title="Pro"     price="$759" priceCadence="/ yr" .../>
+  <PricingCard width="4" title="Studio"  price="$1,910" priceCadence="/ yr" .../>
+</ContentSection>
+```
+
+#### Pre-flight checklist
+
+Before saving any page that uses tabs:
+- [ ] Site `base_theme` is `streamlined-home-pro` or `encore-page-pro`.
+- [ ] Tabs block's `tabs[].slug` values are all lowercase, unique, and ≤ 5 entries.
+- [ ] Every slug in the tabs block has exactly one matching pane section with `tabSlug` set to the same value.
+- [ ] Exactly one pane section has `defaultTab: true`.
+- [ ] Pane sections are SIBLINGS of the tabs section in the page's `sections` array, not nested inside it.
+- [ ] CTAs across all panes match the site's brand button styling (§4.7).
 
 ### 9.6 Search form + Search filter blocks
 
@@ -1075,6 +1251,8 @@ Per-form overrides: every field above has a per-block override with the same `"i
 4. **Per-element** override (e.g. `override_h3_font_styles: true`) — beats All headings for that element.
 5. **Bold-per-element** override (e.g. `override_h3_bold_font_styles: true`) — beats per-element for the `strong` variant.
 6. **Block-level** overrides on `cta` / form blocks — beat all template-level button/form settings.
+
+**Standard Style Guide defaults must be honored as fallbacks (preview parity).** When the expert leaves Standard fields like `font_weight_heading`, `line_height_heading`, `font_size_h1_desktop`, `font_size_h1_mobile` (and h2–h6), `font_weight_body`, `line_height_body` empty, Kajabi falls back to **base-theme defaults** (headings 700, h1 48px desktop / 36px mobile, etc.) — NOT to browser UA defaults. The preview engine (`packages/engine/src/siteDesign/resolvePreviewFonts.ts → buildStandardThemeRules`) MUST therefore read each Standard field via `valWithDefault(ts, key)` which falls through to `TEMPLATE_SETTINGS_BY_ID[key].default` from `templateSettingsCatalog.ts`, and emit a CSS rule whenever the resolved value is non-empty. Without this, preview headings collapse to UA `h1 ≈ 32px` while the exported Kajabi site renders 48px — the expert reports "the headings look fine in Kajabi but tiny in the preview" (or vice-versa after they strip an inline `font-size`). Heading weight rules MUST also target `:is(h1..h6) strong` so inline `<strong>` inherits the heading weight instead of body weight. Per-heading desktop+mobile sizes go inside `@media (min-width: 768px)` / `@media (max-width: 767px)` blocks. This is preview-only plumbing; export is unaffected because Kajabi's runtime CSS already handles the fallbacks server-side.
 
 **Visibility toggles (`hide_if`) — flip them when you emit overrides.** Most override fields have `hide_if: { <toggle_id>: false }`. The toggle controls **whether the field is visible in the Kajabi page builder**, not whether it's emitted. **Whenever you emit any field under a toggle, you MUST also flip the toggle to `true`** — otherwise the expert opens Kajabi and can't see/edit the values you wrote.
 
