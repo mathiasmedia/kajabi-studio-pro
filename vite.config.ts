@@ -24,8 +24,14 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  // Treat .zip files as static assets so the engine's `?url` imports of
+  // bundled base-theme zips resolve to fetchable URLs.
+  assetsInclude: ["**/*.zip"],
   optimizeDeps: {
     include: ["jszip"],
+    // The engine imports .zip?url at module init — pre-bundling chokes on it,
+    // so exclude the engine from depopt and let Vite serve it directly.
+    exclude: ["@k-studio-pro/engine"],
   },
   resolve: {
     // Order matters: more-specific aliases must come before "@".
