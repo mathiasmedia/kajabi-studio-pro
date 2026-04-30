@@ -138,6 +138,11 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react-dom/client",
       "react-router-dom",
+      // jszip is a UMD bundle. The engine imports it as `import JSZip from 'jszip'`.
+      // Without pre-bundling, Vite serves the raw UMD which has no ESM `default`
+      // export → SyntaxError when the (excluded) engine tries to import it.
+      // Force-include so Vite synthesizes the ESM default for it.
+      "jszip",
     ],
     // CRITICAL: Exclude the engine from dep pre-bundling. If esbuild
     // pre-bundles it, the `.zip?url` imports get replaced with the
@@ -148,12 +153,7 @@ export default defineConfig(({ mode }) => ({
     // fail with `Base theme zip "..." is invalid`. Excluding the
     // engine forces Vite to load it through the main pipeline where
     // viteEngineZipPlugin resolves the zips correctly.
-    // Also exclude jszip: when the engine is excluded, it imports jszip
-    // as raw ESM source (`import JSZip from 'jszip'`). If jszip is still
-    // pre-bundled separately, Vite's served chunk doesn't expose a
-    // `default` export to the un-bundled engine module → SyntaxError:
-    // "does not provide an export named 'default'" → blank app.
-    exclude: ["@k-studio-pro/engine", "jszip"],
+    exclude: ["@k-studio-pro/engine"],
     // esbuild's dep-scan walks the engine package and chokes on its
     // `*.zip?url` imports because esbuild has no built-in `.zip` loader.
     // Stub them out at scan time — Vite's main pipeline (via
