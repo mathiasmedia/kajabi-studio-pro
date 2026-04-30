@@ -71,10 +71,12 @@ export default defineConfig(({ mode }) => ({
       "react-router-dom",
       "jszip",
     ],
-    // The engine package imports `.zip?url` files. esbuild's dep-optimizer
-    // doesn't know about Vite's `?url` suffix, so tell it to treat .zip as
-    // empty during pre-bundling — the actual fetch happens at runtime via
-    // the URL emitted by Vite's asset pipeline.
+    // Exclude the engine package so esbuild's dep-optimizer never sees its
+    // `.zip?url` imports — Vite's main pipeline (which DOES understand `?url`)
+    // handles them and emits real fetchable asset URLs. React/Router stay
+    // shared via `resolve.dedupe` above, so this exclusion does NOT cause the
+    // dual-React / "AuthProvider context lost" failure.
+    exclude: ["@k-studio-pro/engine"],
     esbuildOptions: {
       loader: {
         ".zip": "empty",
