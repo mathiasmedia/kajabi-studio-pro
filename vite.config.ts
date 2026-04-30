@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     // Order matters: more-specific aliases must come before "@".
     alias: [
+      { find: /^@kajabi-studio\/engine$/, replacement: engineFile("index.ts") },
       // Engine internals still use legacy @/blocks, @/engines, @/lib/siteDesign,
       // and @/types imports. These aliases must point into the engine package,
       // but the package entrypoints themselves should resolve normally so the
