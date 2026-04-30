@@ -26,6 +26,11 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   optimizeDeps: {
     include: ["jszip"],
+    // The engine is consumed as source via the aliases below. Excluding it from
+    // esbuild's dep pre-bundle scan avoids "No loader is configured for .zip"
+    // errors on its `import ... from '*.zip?url'` base-theme imports — Vite's
+    // own asset pipeline handles those at request time, but esbuild can't.
+    exclude: ["@k-studio-pro/engine"],
   },
   resolve: {
     // Order matters: more-specific aliases must come before "@".
