@@ -2,18 +2,18 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
-
-const ENGINE_SRC = path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src");
-
-function engineDir(subdir: string): string {
-  return `${path.resolve(ENGINE_SRC, subdir)}/`;
-}
-
-function engineFile(file: string): string {
-  return path.resolve(ENGINE_SRC, file);
-}
+import { viteEngineAliases } from "@k-studio-pro/engine/vite";
 
 // https://vitejs.dev/config/
+//
+// Thin-client vite config. The engine alias block comes from the engine
+// package itself (`@k-studio-pro/engine/vite`) so the trailing-slash bug
+// for deep imports (e.g. `@/blocks/components/Slider`) cannot regress —
+// the helper guarantees the trailing slash on every replacement.
+//
+// DO NOT hand-edit the engine alias block here. If `@/blocks`,
+// `@/engines`, `@/lib/siteDesign`, or `@/types` ever stop resolving,
+// `bun update @k-studio-pro/engine` to pick up the latest helper.
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -23,50 +23,22 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
-
-  // Treat .zip files as static assets so the engine's `?url` imports of
-  // bundled base-theme zips resolve to fetchable URLs.
-  assetsInclude: ["**/*.zip"],
-
-  optimizeDeps: {
-    force: true,
-    include: ["react", "react/jsx-runtime", "react-dom", "react-dom/client", "react-router-dom", "jszip"],
-    exclude: ["@k-studio-pro/engine"],
-    esbuildOptions: {
-      loader: {
-        ".zip": "empty",
-      },
-    },
-  },
-
   resolve: {
-    // Order matters: more-specific aliases MUST come before the "@" catch-all.
+    // Order matters: more-specific aliases must come before "@".
     alias: [
-      // Force AuthProvider/useAuth to resolve to the exact source module used by engine pages
-      { find: /^@engine-auth$/, replacement: engineFile("shell/hooks/useAuth.tsx") },
-
-      // Engine package subpaths + bare entry
-      { find: /^@k-studio-pro\/engine\/data$/, replacement: engineFile("data/index.ts") },
-      { find: /^@k-studio-pro\/engine\/shell$/, replacement: engineFile("shell/index.ts") },
-      { find: /^@k-studio-pro\/engine\/vite$/, replacement: engineFile("vite.ts") },
-      { find: /^@k-studio-pro\/engine$/, replacement: engineFile("index.ts") },
-
-      // Legacy engine self-import
-      { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
-
-      // Legacy @/blocks, @/engines, @/lib/siteDesign, @/types deep + barrel imports
-      { find: /^@\/blocks\//, replacement: engineDir("blocks") },
-      { find: /^@\/engines\//, replacement: engineDir("engines") },
-      { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
-      { find: /^@\/types\//, replacement: engineDir("types") },
-      { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
-      { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
-      { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
-
-      // Thin-client catch-all — MUST be last
+      // Engine package — maps @/blocks, @/engines, @/lib/siteDesign, @/types
+      // into node_modules/@k-studio-pro/engine. See engine's src/vite.ts.
+      ...viteEngineAliases(__dirname),
+      // Thin-client app shell — pages, components, hooks, lib, etc.
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
-
+    // Dedupe is CRITICAL — without this, the engine package and the thin-client
+    // app can each get their own copy of React / React Router, which fragments
+    // React contexts (most visibly: AuthProvider in the engine shell vs.
+    // useAuth() called from a different React copy) and produces the
+    // "useAuth must be used within an AuthProvider" error even when the tree
+    // is wrapped correctly. Add `@k-studio-pro/engine` so the engine package
+    // itself is also single-instance across the dep graph.
     dedupe: [
       "react",
       "react-dom",
@@ -76,6 +48,26 @@ export default defineConfig(({ mode }) => ({
       "@tanstack/react-query",
       "@tanstack/query-core",
       "swiper",
+      "@k-studio-pro/engine",
+    ],
+  },
+  // Pre-bundle React + Router so Vite ships ONE copy across both the thin
+  // client and the engine package's shell. Skipping this lets Vite split the
+  // engine shell into a separate dep optimization chunk that imports its own
+  // React/Router instance — that's the classic "AuthProvider context lost"
+  // failure mode after migrating to the engine package.
+  //
+  // DO NOT add `@k-studio-pro/engine`, `@k-studio-pro/engine/shell`, or
+  // `@k-studio-pro/engine/data` to `optimizeDeps.exclude` — excluding them
+  // brings the fragmentation back. The engine is intentionally pre-bundled
+  // alongside React so every shell hook resolves to the same module instance.
+  optimizeDeps: {
+    include: [
+      "react",
+      "react/jsx-runtime",
+      "react-dom",
+      "react-dom/client",
+      "react-router-dom",
     ],
   },
 }));
