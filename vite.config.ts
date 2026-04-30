@@ -120,5 +120,29 @@ export default defineConfig(({ mode }) => ({
       "react-dom/client",
       "react-router-dom",
     ],
+    // esbuild's dep-scan walks the engine package and chokes on its
+    // `*.zip?url` imports because esbuild has no built-in `.zip` loader.
+    // Stub them out at scan time — Vite's main pipeline (via
+    // viteEngineZipPlugin above) handles the real resolution at request
+    // time, so the stub is never actually executed at runtime.
+    esbuildOptions: {
+      loader: { ".zip": "empty" },
+      plugins: [
+        {
+          name: "k-studio-engine-zip-url-esbuild",
+          setup(build) {
+            build.onResolve({ filter: /\.zip\?url$/ }, (args) => ({
+              path: args.path,
+              namespace: "engine-zip-url-stub",
+              external: false,
+            }));
+            build.onLoad(
+              { filter: /.*/, namespace: "engine-zip-url-stub" },
+              () => ({ contents: 'export default "";', loader: "js" }),
+            );
+          },
+        },
+      ],
+    },
   },
 }));
