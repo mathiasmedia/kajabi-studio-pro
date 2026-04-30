@@ -35,6 +35,10 @@ export default defineConfig(({ mode }) => ({
       { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
       { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
       { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
+      // Direct deep import to baseThemeValidator (engine package's `exports`
+      // field doesn't expose engines/ — needed by main.tsx to override the
+      // bundled `.zip?url` URLs that esbuild empties during dep-optimization).
+      { find: "@k-studio-pro/engine/internal/baseThemeValidator", replacement: engineFile("engines/baseThemeValidator.ts") },
       // Thin-client app shell catch-all — MUST be last
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
@@ -70,13 +74,16 @@ export default defineConfig(({ mode }) => ({
       "react-dom/client",
       "react-router-dom",
       "jszip",
+      // Pre-bundle the engine entry points so React/Router stay deduped
+      // (prevents "useAuth must be used within an AuthProvider").
+      "@k-studio-pro/engine",
+      "@k-studio-pro/engine/shell",
+      "@k-studio-pro/engine/data",
     ],
-    // Exclude the engine package so esbuild's dep-optimizer never sees its
-    // `.zip?url` imports — Vite's main pipeline (which DOES understand `?url`)
-    // handles them and emits real fetchable asset URLs. React/Router stay
-    // shared via `resolve.dedupe` above, so this exclusion does NOT cause the
-    // dual-React / "AuthProvider context lost" failure.
-    exclude: ["@k-studio-pro/engine"],
+    // The engine package imports `.zip?url` files. esbuild's dep-optimizer
+    // doesn't know about Vite's `?url` suffix, so tell it to treat .zip as
+    // empty during pre-bundling — the actual fetch happens at runtime via
+    // the URL emitted by Vite's asset pipeline.
     esbuildOptions: {
       loader: {
         ".zip": "empty",
