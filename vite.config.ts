@@ -3,8 +3,19 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
-const engineSrc = (sub: string) =>
-  path.resolve(__dirname, `./node_modules/@k-studio-pro/engine/src/${sub}`);
+// Inlined from `@k-studio-pro/engine/vite` because Node refuses to strip TS
+// types from files under node_modules (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING).
+// Engine path helpers — guarantee a trailing slash on directories so deep
+// imports like `@/blocks/components/Slider` don't collapse into
+// `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
+function engineDir(sub: string): string {
+  return (
+    path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src", sub) + "/"
+  );
+}
+function engineFile(file: string): string {
+  return path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src", file);
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -20,17 +31,19 @@ export default defineConfig(({ mode }) => ({
     include: ["jszip"],
   },
   resolve: {
-    // More-specific aliases MUST come before the catch-all "@".
+    // Engine-managed aliases MUST come before the catch-all "@".
     alias: [
-      { find: "@kajabi-studio/engine", replacement: engineSrc("index.ts") },
-      { find: /^@\/blocks$/, replacement: engineSrc("blocks") },
-      { find: /^@\/blocks\//, replacement: engineSrc("blocks") + "/" },
-      { find: /^@\/engines$/, replacement: engineSrc("engines") },
-      { find: /^@\/engines\//, replacement: engineSrc("engines") + "/" },
-      { find: /^@\/lib\/siteDesign$/, replacement: engineSrc("siteDesign") },
-      { find: /^@\/lib\/siteDesign\//, replacement: engineSrc("siteDesign") + "/" },
-      { find: /^@\/types\/assets$/, replacement: engineSrc("types/assets") },
-      { find: /^@\/types\/schemas$/, replacement: engineSrc("types/schemas") },
+      // Legacy alias still used by some engine internals.
+      { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
+      // Deep imports — regex AND replacement both end with "/".
+      { find: /^@\/blocks\//, replacement: engineDir("blocks") },
+      { find: /^@\/engines\//, replacement: engineDir("engines") },
+      { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
+      { find: /^@\/types\//, replacement: engineDir("types") },
+      // Bare (barrel) imports — point at the index file directly.
+      { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
+      { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
+      { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     dedupe: [
@@ -40,6 +53,7 @@ export default defineConfig(({ mode }) => ({
       "react/jsx-dev-runtime",
       "@tanstack/react-query",
       "@tanstack/query-core",
+      "swiper",
     ],
   },
 }));
