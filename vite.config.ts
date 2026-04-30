@@ -59,6 +59,9 @@ export default defineConfig(({ mode }) => ({
   // React/Router instance — the classic "AuthProvider context lost" failure.
   //
   // DO NOT add `@k-studio-pro/engine` (or its subpaths) to optimizeDeps.exclude.
+  // Treat .zip files as static assets so the engine's `?url` imports of
+  // bundled base-theme zips resolve to fetchable URLs at runtime.
+  assetsInclude: ["**/*.zip"],
   optimizeDeps: {
     include: [
       "react",
@@ -66,6 +69,16 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react-dom/client",
       "react-router-dom",
+      "jszip",
     ],
+    // The engine package imports `.zip?url` files. esbuild's dep-optimizer
+    // doesn't know about Vite's `?url` suffix, so tell it to treat .zip as
+    // empty during pre-bundling — the actual fetch happens at runtime via
+    // the URL emitted by Vite's asset pipeline.
+    esbuildOptions: {
+      loader: {
+        ".zip": "empty",
+      },
+    },
   },
 }));
