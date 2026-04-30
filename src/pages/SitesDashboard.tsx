@@ -860,18 +860,6 @@ function CreateLandingPageDialog({
   );
 }
 
-/**
- * Standard / Pro tier toggle used in both create dialogs. The chosen tier
- * maps to the underlying Kajabi base-theme zip (set once at creation; never
- * mutated by the editor — see AGENTS.md base-theme rules).
- *
- *   site         → streamlined-home    | streamlined-home-pro
- *   landing_page → encore-page         | encore-page-pro
- *
- * Pro themes are 100% backward compatible (additive blocks + section
- * settings: sliders, animations, column layouts, search/filter blocks,
- * Pro footer). Existing sites are unaffected.
- */
 function TierToggle({
   value,
   onChange,

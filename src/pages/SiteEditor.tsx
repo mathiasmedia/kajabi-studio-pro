@@ -6,13 +6,8 @@
  * multi-page tree as a Kajabi zip.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  exportFromTree,
-  triggerDownload,
-  usePreviewFontInjection,
-  useScopedCustomCss,
-} from '@k-studio-pro/engine';
+import { useNavigate, useParams } from 'react-router-dom';
+import { exportFromTree, triggerDownload } from '@/blocks';
 import { supabase } from '@/integrations/supabase/client';
 import {
   getSite,
@@ -22,7 +17,8 @@ import {
   type Site,
 } from '@/lib/siteStore';
 import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
-import { renderDesign, designToPageTrees } from '@k-studio-pro/engine';
+import { renderDesign, designToPageTrees } from '@/lib/siteDesign/render';
+import { usePreviewFontInjection, useScopedCustomCss } from '@/lib/siteDesign/previewStyles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -32,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Download, Link2, Pencil, Wand2, Copy as CopyIcon, X } from 'lucide-react';
+import { ArrowLeft, Download, Link2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { persistExportZip, formatRelativeTime } from '@/lib/exportPersistence';
 
@@ -65,8 +61,6 @@ export default function SiteEditor() {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [images, setImages] = useState<SiteImage[]>([]);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const clonePrompt = searchParams.get('clonePrompt');
 
   useEffect(() => {
     if (!siteId) return;
@@ -127,20 +121,12 @@ export default function SiteEditor() {
 
   // Preview-time font + customCss injection. The hooks live in the engine
   // package so font-resolution / CSS-scope fixes auto-propagate to thin
-  // clients via `bun update @k-studio-pro/engine`.
-  //
-  // Scope is `.preview-root` — every preview tree is wrapped in that class
-  // (see SitePreview component + the editor's renderDesign output).
+  // clients via `bun update @kajabi-studio/engine`.
   usePreviewFontInjection(site?.design ?? null, {
     scopeSelector: '.preview-root',
     instanceId: site?.id ?? 'editor',
   });
 
-  // Inject the site's customCss into the editor preview so what you see
-  // matches what the export ships to Kajabi. The hook scopes every selector
-  // to `.preview-root` so authoring `section:first-of-type::before { ... }`
-  // (export form) AND `.preview-root > section:first-of-type::before { ... }`
-  // (preview form) are no longer both required — author once, both work.
   const scopedEditorCss = useScopedCustomCss(site?.design?.customCss, '.preview-root');
   useEffect(() => {
     if (!scopedEditorCss) return;
@@ -194,18 +180,11 @@ export default function SiteEditor() {
         global,
         themeSettings,
         customCss,
-        // base_theme is set once at site creation; resolveBaseTheme falls back
-        // to the family default (streamlined-home / encore-page) for legacy
-        // rows where the column is NULL. Pro sites + Pro landing pages flow
-        // through here without any other change.
         baseTheme: resolveBaseTheme(site),
       });
       const safe = site.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
       triggerDownload(blob, `${safe}.zip`);
 
-      // Fire-and-forget cloud upload — don't make the user wait.
-      // The realtime subscription on `sites` will refresh `site` once the
-      // row is updated, which lights up the Copy link button.
       persistExportZip(site, blob).then((res) => {
         if (res.ok) {
           toast.success('Latest build link updated');
@@ -294,7 +273,6 @@ export default function SiteEditor() {
           )}
         </div>
 
-        {/* Page selector — hidden for landing pages (single page only). */}
         {!isLandingPage && (
           <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
             <SelectTrigger className="h-9 w-56">
@@ -335,19 +313,6 @@ export default function SiteEditor() {
           )}
         </div>
       </div>
-
-      {/* Clone-from-URL handoff banner — preserved from thin client. */}
-      {clonePrompt && (
-        <ClonePromptBanner
-          sourceUrl={clonePrompt}
-          siteName={site.name}
-          onDismiss={() => {
-            const next = new URLSearchParams(searchParams);
-            next.delete('clonePrompt');
-            setSearchParams(next, { replace: true });
-          }}
-        />
-      )}
 
       {/* Preview */}
       <div className="preview-root">
@@ -418,90 +383,5 @@ function SlugField({
       <span>/{initial || 'no-slug'}</span>
       <Pencil className="h-3 w-3" />
     </button>
-  );
-}
-
-/**
- * Clone-from-URL handoff banner — preserved thin-client feature.
- */
-function ClonePromptBanner({
-  sourceUrl,
-  siteName,
-  onDismiss,
-}: {
-  sourceUrl: string;
-  siteName: string;
-  onDismiss: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const promptText = `Clone ${sourceUrl} into this site ("${siteName}").
-
-Steps:
-1. Fetch the homepage with code--fetch_website (markdown + screenshot) so you can SEE the design.
-2. Identify the brand: colors, typography, voice, key sections. Pick a Pro font pairing.
-3. Discover inner pages from the homepage links — fetch about, services/programs, contact (whichever exist).
-4. Build the site page-by-page using get-site-design → mutate → update-site-design. Generate hero/section imagery via generate-site-image as you go.
-5. Follow AGENTS.md strictly: §4.10 dynamic pages, §4.7 CTA consistency, §9 Pro theme rules, §4.23 white-on-white blocks, §4.13 footer copyright.
-6. After each page, pause and show me what you built before moving on.`;
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(promptText);
-      setCopied(true);
-      toast.success('Prompt copied — paste it into chat');
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error('Copy failed — select the text manually');
-    }
-  }
-
-  return (
-    <div className="border-b border-primary/20 bg-primary/5 px-4 py-3">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <Wand2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">
-              Ready to clone{' '}
-              <a
-                href={sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-primary underline underline-offset-2"
-              >
-                {sourceUrl}
-              </a>
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Click <span className="font-medium">Copy clone prompt</span> below,
-              then paste it into Lovable's chat. The AI will scrape, screenshot,
-              and design the site with you page-by-page.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={handleCopy}>
-            {copied ? (
-              <>
-                <CopyIcon className="h-4 w-4" /> Copied
-              </>
-            ) : (
-              <>
-                <CopyIcon className="h-4 w-4" /> Copy clone prompt
-              </>
-            )}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onDismiss}
-            title="Dismiss"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }
