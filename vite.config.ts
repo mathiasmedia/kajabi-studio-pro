@@ -2,18 +2,18 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
-import { viteEngineAliases } from "@k-studio-pro/engine/vite";
 
 // https://vitejs.dev/config/
 //
-// Thin-client vite config. The engine alias block comes from the engine
-// package itself (`@k-studio-pro/engine/vite`) so the trailing-slash bug
-// for deep imports (e.g. `@/blocks/components/Slider`) cannot regress —
-// the helper guarantees the trailing slash on every replacement.
-//
-// DO NOT hand-edit the engine alias block here. If `@/blocks`,
-// `@/engines`, `@/lib/siteDesign`, or `@/types` ever stop resolving,
-// `bun update @k-studio-pro/engine` to pick up the latest helper.
+// Thin-client vite config. The engine alias block is inlined here (rather
+// than imported from `@k-studio-pro/engine/vite`) because Node refuses to
+// type-strip `.ts` files inside node_modules. This is the same logic as
+// `viteEngineAliases()` in the engine package — keep it in sync if the
+// engine ever changes its alias shape.
+const ENGINE_SRC = path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src");
+const engineDir = (sub: string) => path.resolve(ENGINE_SRC, sub) + "/";
+const engineFile = (file: string) => path.resolve(ENGINE_SRC, file);
+
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -26,19 +26,21 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     // Order matters: more-specific aliases must come before "@".
     alias: [
-      // Engine package — maps @/blocks, @/engines, @/lib/siteDesign, @/types
-      // into node_modules/@k-studio-pro/engine. See engine's src/vite.ts.
-      ...viteEngineAliases(__dirname),
-      // Thin-client app shell — pages, components, hooks, lib, etc.
+      // Deep imports — regex pattern AND replacement MUST end with "/"
+      { find: /^@\/blocks\//, replacement: engineDir("blocks") },
+      { find: /^@\/engines\//, replacement: engineDir("engines") },
+      { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
+      { find: /^@\/types\//, replacement: engineDir("types") },
+      // Bare (barrel) imports
+      { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
+      { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
+      { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
+      // Thin-client app shell catch-all — MUST be last
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     // Dedupe is CRITICAL — without this, the engine package and the thin-client
-    // app can each get their own copy of React / React Router, which fragments
-    // React contexts (most visibly: AuthProvider in the engine shell vs.
-    // useAuth() called from a different React copy) and produces the
-    // "useAuth must be used within an AuthProvider" error even when the tree
-    // is wrapped correctly. Add `@k-studio-pro/engine` so the engine package
-    // itself is also single-instance across the dep graph.
+    // app can each get their own copy of React / React Router, fragmenting
+    // React contexts and producing "useAuth must be used within an AuthProvider".
     dedupe: [
       "react",
       "react-dom",
@@ -54,13 +56,9 @@ export default defineConfig(({ mode }) => ({
   // Pre-bundle React + Router so Vite ships ONE copy across both the thin
   // client and the engine package's shell. Skipping this lets Vite split the
   // engine shell into a separate dep optimization chunk that imports its own
-  // React/Router instance — that's the classic "AuthProvider context lost"
-  // failure mode after migrating to the engine package.
+  // React/Router instance — the classic "AuthProvider context lost" failure.
   //
-  // DO NOT add `@k-studio-pro/engine`, `@k-studio-pro/engine/shell`, or
-  // `@k-studio-pro/engine/data` to `optimizeDeps.exclude` — excluding them
-  // brings the fragmentation back. The engine is intentionally pre-bundled
-  // alongside React so every shell hook resolves to the same module instance.
+  // DO NOT add `@k-studio-pro/engine` (or its subpaths) to optimizeDeps.exclude.
   optimizeDeps: {
     include: [
       "react",
