@@ -3,13 +3,12 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
-// Engine path helpers — guarantee a trailing slash on directories so deep
-// imports like `@/blocks/components/Slider` don't collapse into
-// `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
-const ENGINE_SRC = path.resolve(
-  __dirname,
-  "node_modules/@k-studio-pro/engine/src",
-);
+const ENGINE_SRC = path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src");
+
+function engineDir(subdir: string): string {
+  return `${path.resolve(ENGINE_SRC, subdir)}/`;
+}
+
 function engineFile(file: string): string {
   return path.resolve(ENGINE_SRC, file);
 }
@@ -29,33 +28,31 @@ export default defineConfig(({ mode }) => ({
   assetsInclude: ["**/*.zip"],
   optimizeDeps: {
     include: ["jszip"],
-    // The engine imports .zip?url at module init — pre-bundling chokes on it,
-    // so exclude the engine from depopt and let Vite serve it directly.
-    exclude: ["@k-studio-pro/engine"],
+    // The engine ships raw TS source and subpath exports from node_modules.
+    // Exclude every imported subpath from dep optimization so Vite handles the
+    // package directly instead of asking esbuild to pre-bundle .zip?url assets.
+    exclude: [
+      "@k-studio-pro/engine",
+      "@k-studio-pro/engine/data",
+      "@k-studio-pro/engine/shell",
+      "@k-studio-pro/engine/vite",
+    ],
   },
   resolve: {
     // Order matters: more-specific aliases must come before "@".
     alias: [
-      // ---- Engine package ----
-      // Thin client consumes the published @k-studio-pro/engine package; these
-      // explicit aliases mirror master's vite.config.ts so subpath resolution
-      // is identical (no reliance on the package exports map).
-      { find: /^@k-studio-pro\/engine\/data$/, replacement: engineFile("data/index.ts") },
-      { find: /^@k-studio-pro\/engine\/shell$/, replacement: engineFile("shell/index.ts") },
-      { find: /^@k-studio-pro\/engine\/vite$/, replacement: engineFile("vite.ts") },
-      { find: /^@k-studio-pro\/engine$/, replacement: engineFile("index.ts") },
-      // Legacy alias (kept for any straggler imports inside engine internals).
-      { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
-      // Backward-compat: legacy @/blocks, @/engines, @/lib/siteDesign, @/types
-      // imports inside the engine package resolve back into the engine source.
-      // Trailing slash on the directory replacement is REQUIRED — without it,
-      // deep imports like `@/blocks/components/Slider` collapse into
-      // `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
-      { find: /^@\/blocks(\/.*)?$/, replacement: ENGINE_SRC + "/blocks$1" },
-      { find: /^@\/engines(\/.*)?$/, replacement: ENGINE_SRC + "/engines$1" },
-      { find: /^@\/lib\/siteDesign(\/.*)?$/, replacement: ENGINE_SRC + "/siteDesign$1" },
-      { find: /^@\/types(\/.*)?$/, replacement: ENGINE_SRC + "/types$1" },
-      // ---- Thin client ----
+      { find: /^@kajabi-studio\/engine$/, replacement: engineFile("index.ts") },
+      // Engine internals still use legacy @/blocks, @/engines, @/lib/siteDesign,
+      // and @/types imports. These aliases must point into the engine package,
+      // but the package entrypoints themselves should resolve normally so the
+      // optimizeDeps excludes above can prevent esbuild zip-loader crashes.
+      { find: /^@\/blocks\//, replacement: engineDir("blocks") },
+      { find: /^@\/engines\//, replacement: engineDir("engines") },
+      { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
+      { find: /^@\/types\//, replacement: engineDir("types") },
+      { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
+      { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
+      { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     dedupe: [
