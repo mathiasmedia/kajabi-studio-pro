@@ -3,18 +3,15 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
-// Inlined from `@k-studio-pro/engine/vite` because Node refuses to strip TS
-// types from files under node_modules (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING).
 // Engine path helpers — guarantee a trailing slash on directories so deep
 // imports like `@/blocks/components/Slider` don't collapse into
 // `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
-function engineDir(sub: string): string {
-  return (
-    path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src", sub) + "/"
-  );
-}
+const ENGINE_SRC = path.resolve(
+  __dirname,
+  "node_modules/@k-studio-pro/engine/src",
+);
 function engineFile(file: string): string {
-  return path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src", file);
+  return path.resolve(ENGINE_SRC, file);
 }
 
 // https://vitejs.dev/config/
@@ -31,19 +28,28 @@ export default defineConfig(({ mode }) => ({
     include: ["jszip"],
   },
   resolve: {
-    // Engine-managed aliases MUST come before the catch-all "@".
+    // Order matters: more-specific aliases must come before "@".
     alias: [
-      // Legacy alias still used by some engine internals.
+      // ---- Engine package ----
+      // Thin client consumes the published @k-studio-pro/engine package; these
+      // explicit aliases mirror master's vite.config.ts so subpath resolution
+      // is identical (no reliance on the package exports map).
+      { find: /^@k-studio-pro\/engine\/data$/, replacement: engineFile("data/index.ts") },
+      { find: /^@k-studio-pro\/engine\/shell$/, replacement: engineFile("shell/index.ts") },
+      { find: /^@k-studio-pro\/engine\/vite$/, replacement: engineFile("vite.ts") },
+      { find: /^@k-studio-pro\/engine$/, replacement: engineFile("index.ts") },
+      // Legacy alias (kept for any straggler imports inside engine internals).
       { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
-      // Deep imports — regex AND replacement both end with "/".
-      { find: /^@\/blocks\//, replacement: engineDir("blocks") },
-      { find: /^@\/engines\//, replacement: engineDir("engines") },
-      { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
-      { find: /^@\/types\//, replacement: engineDir("types") },
-      // Bare (barrel) imports — point at the index file directly.
-      { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
-      { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
-      { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
+      // Backward-compat: legacy @/blocks, @/engines, @/lib/siteDesign, @/types
+      // imports inside the engine package resolve back into the engine source.
+      // Trailing slash on the directory replacement is REQUIRED — without it,
+      // deep imports like `@/blocks/components/Slider` collapse into
+      // `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
+      { find: /^@\/blocks(\/.*)?$/, replacement: ENGINE_SRC + "/blocks$1" },
+      { find: /^@\/engines(\/.*)?$/, replacement: ENGINE_SRC + "/engines$1" },
+      { find: /^@\/lib\/siteDesign(\/.*)?$/, replacement: ENGINE_SRC + "/siteDesign$1" },
+      { find: /^@\/types(\/.*)?$/, replacement: ENGINE_SRC + "/types$1" },
+      // ---- Thin client ----
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     dedupe: [
