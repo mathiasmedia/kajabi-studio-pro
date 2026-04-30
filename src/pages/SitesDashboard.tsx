@@ -165,9 +165,7 @@ export default function SitesDashboard() {
     };
   }, []);
 
-  // When admin, look up owner emails for the visible items. Edge function is
-  // master-only; on thin clients it 404s and we silently fall back to no
-  // owner labels (isAdmin is also typically false in thin clients).
+  // When admin, look up owner emails for the visible items.
   useEffect(() => {
     const allItems = [...websites, ...landingPages];
     if (!isAdmin || allItems.length === 0) {
