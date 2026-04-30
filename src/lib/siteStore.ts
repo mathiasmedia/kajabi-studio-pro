@@ -9,10 +9,12 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import type { SiteDesign } from './siteDesign/types';
-import { isSiteDesign } from './siteDesign/types';
-import { buildBlankDesign } from './siteDesign/blank';
-import { buildLandingPageBlankDesign } from './siteDesign/landingPageBlank';
+import {
+  isSiteDesign,
+  buildBlankDesign,
+  buildLandingPageBlankDesign,
+  type SiteDesign,
+} from '@k-studio-pro/engine';
 
 /**
  * Top-level kind a row can be:
