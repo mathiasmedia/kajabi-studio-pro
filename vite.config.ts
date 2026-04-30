@@ -61,40 +61,9 @@ function viteEngineZipPlugin(): Plugin {
   return {
     name: "k-studio-engine-zip-url",
     enforce: "pre",
-    config(_cfg, env) {
+    config(cfg, env) {
       isBuild = env.command === "build";
-    },
-    async resolveId(source, importer) {
-      if (!source.endsWith(".zip?url")) return null;
-      const withoutQuery = source.slice(0, -"?url".length);
-      let absPath: string;
-      if (path.isAbsolute(withoutQuery)) {
-        absPath = withoutQuery;
-      } else if (importer) {
-        // importer may carry a query / null-byte prefix — strip both.
-        const cleanImporter = importer.split("?")[0].replace(/^\0/, "");
-        absPath = path.resolve(path.dirname(cleanImporter), withoutQuery);
-      } else {
-        return null;
-      }
-      if (!fs.existsSync(absPath)) return null;
-      return PREFIX + absPath;
-    },
-    async load(id) {
-      if (!id.startsWith(PREFIX)) return null;
-      const absPath = id.slice(PREFIX.length);
-      if (isBuild) {
-        const source = await fs.promises.readFile(absPath);
-        const referenceId = this.emitFile({
-          type: "asset",
-          name: path.basename(absPath),
-          source,
-        });
-        return `export default import.meta.ROLLUP_FILE_URL_${referenceId};`;
-      }
-      return `export default ${JSON.stringify("/@fs" + absPath)};`;
-    },
-    config(cfg) {
+
       const esbuildPlugin = {
         name: "k-studio-engine-zip-url-esbuild",
         setup(build: {
@@ -144,6 +113,36 @@ function viteEngineZipPlugin(): Plugin {
           },
         },
       };
+    },
+    async resolveId(source, importer) {
+      if (!source.endsWith(".zip?url")) return null;
+      const withoutQuery = source.slice(0, -"?url".length);
+      let absPath: string;
+      if (path.isAbsolute(withoutQuery)) {
+        absPath = withoutQuery;
+      } else if (importer) {
+        // importer may carry a query / null-byte prefix — strip both.
+        const cleanImporter = importer.split("?")[0].replace(/^\0/, "");
+        absPath = path.resolve(path.dirname(cleanImporter), withoutQuery);
+      } else {
+        return null;
+      }
+      if (!fs.existsSync(absPath)) return null;
+      return PREFIX + absPath;
+    },
+    async load(id) {
+      if (!id.startsWith(PREFIX)) return null;
+      const absPath = id.slice(PREFIX.length);
+      if (isBuild) {
+        const source = await fs.promises.readFile(absPath);
+        const referenceId = this.emitFile({
+          type: "asset",
+          name: path.basename(absPath),
+          source,
+        });
+        return `export default import.meta.ROLLUP_FILE_URL_${referenceId};`;
+      }
+      return `export default ${JSON.stringify("/@fs" + absPath)};`;
     },
   };
 }
