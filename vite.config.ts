@@ -44,7 +44,9 @@ export default defineConfig(({ mode }) => ({
     // esbuild to treat `.zip` as a file asset (returns a URL string) so the
     // scan never fails, regardless of which package the import lives in.
     esbuildOptions: {
-      loader: { ".zip": "file" },
+      // `empty` makes the scanner skip the asset's contents and emit nothing.
+      // Vite's own asset pipeline still serves the real zip at request time.
+      loader: { ".zip": "empty" },
     },
   },
   resolve: {
