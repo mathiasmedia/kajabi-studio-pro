@@ -2,18 +2,18 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { viteEngineAliases, viteEngineZipPlugin } from "@k-studio-pro/engine/vite";
 
 // https://vitejs.dev/config/
 //
-// Thin-client vite config. The engine alias block is inlined here (rather
-// than imported from `@k-studio-pro/engine/vite`) because Node refuses to
-// type-strip `.ts` files inside node_modules. This is the same logic as
-// `viteEngineAliases()` in the engine package — keep it in sync if the
-// engine ever changes its alias shape.
-const ENGINE_SRC = path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src");
-const engineDir = (sub: string) => path.resolve(ENGINE_SRC, sub) + "/";
-const engineFile = (file: string) => path.resolve(ENGINE_SRC, file);
-
+// Thin-client vite config. The engine alias block comes from the engine
+// package itself (`@k-studio-pro/engine/vite`) so the trailing-slash bug
+// for deep imports (e.g. `@/blocks/components/Slider`) cannot regress —
+// the helper guarantees the trailing slash on every replacement.
+//
+// DO NOT hand-edit the engine alias block here. If `@/blocks`,
+// `@/engines`, `@/lib/siteDesign`, or `@/types` ever stop resolving,
+// `bun update @k-studio-pro/engine` to pick up the latest helper.
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -22,31 +22,39 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    // viteEngineZipPlugin makes the engine's `*.zip?url` base-theme imports
+    // survive esbuild dep-pre-bundling. Without this, esbuild stubs the four
+    // base-theme zip URLs to "" during pre-bundle, BASE_THEME_URLS ends up
+    // empty, and exports either fail or download a corrupt 1-byte zip. The
+    // historical "fix" was to copy zips into public/base-theme/ and override
+    // BASE_THEME_URLS at startup — DO NOT do that; this plugin is the proper
+    // fix and ships from the engine package itself.
+    viteEngineZipPlugin(),
+    mode === "development" && componentTagger(),
+  ].filter(Boolean),
   resolve: {
     // Order matters: more-specific aliases must come before "@".
     alias: [
-      // Deep imports — regex pattern AND replacement MUST end with "/"
-      { find: /^@\/blocks\//, replacement: engineDir("blocks") },
-      { find: /^@\/engines\//, replacement: engineDir("engines") },
-      { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
-      { find: /^@\/types\//, replacement: engineDir("types") },
-      // Bare (barrel) imports
-      { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
-      { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
-      { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
-      // (no internal alias needed — main.tsx imports from public engine entry only)
-      // Thin-client app shell catch-all — MUST be last
+      // Engine package — maps @/blocks, @/engines, @/lib/siteDesign, @/types
+      // into node_modules/@k-studio-pro/engine. See engine's src/vite.ts.
+      ...viteEngineAliases(__dirname),
+      // Thin-client app shell — pages, components, hooks, lib, etc.
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     // Dedupe is CRITICAL — without this, the engine package and the thin-client
-    // app can each get their own copy of React / React Router, fragmenting
-    // React contexts and producing "useAuth must be used within an AuthProvider".
+    // app can each get their own copy of React / React Router, which fragments
+    // React contexts (most visibly: AuthProvider in the engine shell vs.
+    // useAuth() called from a different React copy) and produces the
+    // "useAuth must be used within an AuthProvider" error even when the tree
+    // is wrapped correctly. Add `@k-studio-pro/engine` so the engine package
+    // itself is also single-instance across the dep graph.
     dedupe: [
       "react",
       "react-dom",
       "react/jsx-runtime",
-      "react/jsx-dev-runtime",
+      "react-dom/client",
       "react-router-dom",
       "@tanstack/react-query",
       "@tanstack/query-core",
@@ -57,12 +65,13 @@ export default defineConfig(({ mode }) => ({
   // Pre-bundle React + Router so Vite ships ONE copy across both the thin
   // client and the engine package's shell. Skipping this lets Vite split the
   // engine shell into a separate dep optimization chunk that imports its own
-  // React/Router instance — the classic "AuthProvider context lost" failure.
+  // React/Router instance — that's the classic "AuthProvider context lost"
+  // failure mode after migrating to the engine package.
   //
-  // DO NOT add `@k-studio-pro/engine` (or its subpaths) to optimizeDeps.exclude.
-  // Treat .zip files as static assets so the engine's `?url` imports of
-  // bundled base-theme zips resolve to fetchable URLs at runtime.
-  assetsInclude: ["**/*.zip"],
+  // DO NOT add `@k-studio-pro/engine`, `@k-studio-pro/engine/shell`, or
+  // `@k-studio-pro/engine/data` to `optimizeDeps.exclude` — excluding them
+  // brings the fragmentation back. The engine is intentionally pre-bundled
+  // alongside React so every shell hook resolves to the same module instance.
   optimizeDeps: {
     include: [
       "react",
@@ -70,38 +79,6 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react-dom/client",
       "react-router-dom",
-      "jszip",
-      // Pre-bundle the engine entry points so React/Router stay deduped
-      // (prevents "useAuth must be used within an AuthProvider").
-      "@k-studio-pro/engine",
-      "@k-studio-pro/engine/shell",
-      "@k-studio-pro/engine/data",
     ],
-    // The engine package imports `.zip?url` files. esbuild's dep-optimizer
-    // can't natively handle Vite's `?url` suffix, so we install a plugin
-    // that intercepts every `*.zip?url` (and `*.zip`) resolution inside the
-    // dep-cache and rewrites it to a tiny JS module that re-exports the
-    // ABSOLUTE file path on disk. Vite's main pipeline (which DOES
-    // understand `?url`) then takes that path through its asset transform
-    // and serves the real fetchable URL — no copying zips into public/,
-    // no manual URL overrides in main.tsx.
-    esbuildOptions: {
-      plugins: [
-        {
-          name: "resolve-engine-zips",
-          setup(build) {
-            build.onResolve({ filter: /\.zip(\?url)?$/ }, (args) => {
-              const cleanPath = args.path.replace(/\?url$/, "");
-              const abs = path.resolve(args.resolveDir, cleanPath);
-              return { path: abs, namespace: "engine-zip-url" };
-            });
-            build.onLoad({ filter: /.*/, namespace: "engine-zip-url" }, (args) => ({
-              contents: `export default ${JSON.stringify("/@fs" + args.path)};`,
-              loader: "js",
-            }));
-          },
-        },
-      ],
-    },
   },
 }));
