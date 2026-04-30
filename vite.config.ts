@@ -1,55 +1,105 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
 import { componentTagger } from "lovable-tagger";
-import { viteEngineAliases, viteEngineZipPlugin } from "@k-studio-pro/engine/vite";
 
-// https://vitejs.dev/config/
+// ──────────────────────────────────────────────────────────────────────
+// Inlined from `@k-studio-pro/engine/vite`.
 //
-// Thin-client vite config. The engine alias block comes from the engine
-// package itself (`@k-studio-pro/engine/vite`) so the trailing-slash bug
-// for deep imports (e.g. `@/blocks/components/Slider`) cannot regress —
-// the helper guarantees the trailing slash on every replacement.
-//
-// DO NOT hand-edit the engine alias block here. If `@/blocks`,
-// `@/engines`, `@/lib/siteDesign`, or `@/types` ever stop resolving,
-// `bun update @k-studio-pro/engine` to pick up the latest helper.
+// We can't `import { … } from "@k-studio-pro/engine/vite"` here because
+// the dev harness loads `vite.config.ts` via Node's native loader, and
+// Node refuses to strip TypeScript types from files inside `node_modules`
+// (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING). The engine ships its
+// vite helpers as raw `.ts`, so we mirror them here. Behaviour is
+// identical — keep this in sync if the engine helper ever changes
+// meaningfully.
+// ──────────────────────────────────────────────────────────────────────
+
+function engineDir(projectRoot: string, sub: string): string {
+  return (
+    path.resolve(projectRoot, "node_modules/@k-studio-pro/engine/src", sub) +
+    "/"
+  );
+}
+
+function engineFile(projectRoot: string, file: string): string {
+  return path.resolve(
+    projectRoot,
+    "node_modules/@k-studio-pro/engine/src",
+    file,
+  );
+}
+
+function viteEngineAliases(projectRoot: string) {
+  return [
+    { find: /^@\/blocks\//, replacement: engineDir(projectRoot, "blocks") },
+    { find: /^@\/engines\//, replacement: engineDir(projectRoot, "engines") },
+    {
+      find: /^@\/lib\/siteDesign\//,
+      replacement: engineDir(projectRoot, "siteDesign"),
+    },
+    { find: /^@\/types\//, replacement: engineDir(projectRoot, "types") },
+    {
+      find: /^@\/blocks$/,
+      replacement: engineFile(projectRoot, "blocks/index.ts"),
+    },
+    {
+      find: /^@\/engines$/,
+      replacement: engineFile(projectRoot, "engines/index.ts"),
+    },
+    {
+      find: /^@\/lib\/siteDesign$/,
+      replacement: engineFile(projectRoot, "siteDesign/index.ts"),
+    },
+  ];
+}
+
+function viteEngineZipPlugin(): Plugin {
+  const PREFIX = "\0engine-zip-url:";
+  return {
+    name: "k-studio-engine-zip-url",
+    enforce: "pre",
+    async resolveId(source, importer) {
+      if (!source.endsWith(".zip?url")) return null;
+      const withoutQuery = source.slice(0, -"?url".length);
+      let absPath: string;
+      if (path.isAbsolute(withoutQuery)) {
+        absPath = withoutQuery;
+      } else if (importer) {
+        absPath = path.resolve(path.dirname(importer), withoutQuery);
+      } else {
+        return null;
+      }
+      if (!fs.existsSync(absPath)) return null;
+      return PREFIX + absPath;
+    },
+    load(id) {
+      if (!id.startsWith(PREFIX)) return null;
+      const absPath = id.slice(PREFIX.length);
+      return `export { default } from ${JSON.stringify(absPath + "?url")};`;
+    },
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────
+
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
-    hmr: {
-      overlay: false,
-    },
+    hmr: { overlay: false },
   },
   plugins: [
     react(),
-    // viteEngineZipPlugin makes the engine's `*.zip?url` base-theme imports
-    // survive esbuild dep-pre-bundling. Without this, esbuild stubs the four
-    // base-theme zip URLs to "" during pre-bundle, BASE_THEME_URLS ends up
-    // empty, and exports either fail or download a corrupt 1-byte zip. The
-    // historical "fix" was to copy zips into public/base-theme/ and override
-    // BASE_THEME_URLS at startup — DO NOT do that; this plugin is the proper
-    // fix and ships from the engine package itself.
     viteEngineZipPlugin(),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {
-    // Order matters: more-specific aliases must come before "@".
     alias: [
-      // Engine package — maps @/blocks, @/engines, @/lib/siteDesign, @/types
-      // into node_modules/@k-studio-pro/engine. See engine's src/vite.ts.
       ...viteEngineAliases(__dirname),
-      // Thin-client app shell — pages, components, hooks, lib, etc.
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
-    // Dedupe is CRITICAL — without this, the engine package and the thin-client
-    // app can each get their own copy of React / React Router, which fragments
-    // React contexts (most visibly: AuthProvider in the engine shell vs.
-    // useAuth() called from a different React copy) and produces the
-    // "useAuth must be used within an AuthProvider" error even when the tree
-    // is wrapped correctly. Add `@k-studio-pro/engine` so the engine package
-    // itself is also single-instance across the dep graph.
     dedupe: [
       "react",
       "react-dom",
@@ -62,16 +112,6 @@ export default defineConfig(({ mode }) => ({
       "@k-studio-pro/engine",
     ],
   },
-  // Pre-bundle React + Router so Vite ships ONE copy across both the thin
-  // client and the engine package's shell. Skipping this lets Vite split the
-  // engine shell into a separate dep optimization chunk that imports its own
-  // React/Router instance — that's the classic "AuthProvider context lost"
-  // failure mode after migrating to the engine package.
-  //
-  // DO NOT add `@k-studio-pro/engine`, `@k-studio-pro/engine/shell`, or
-  // `@k-studio-pro/engine/data` to `optimizeDeps.exclude` — excluding them
-  // brings the fragmentation back. The engine is intentionally pre-bundled
-  // alongside React so every shell hook resolves to the same module instance.
   optimizeDeps: {
     include: [
       "react",
