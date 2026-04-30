@@ -25,34 +25,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   optimizeDeps: {
-    // Pre-bundle React + router so HMR + dedupe stay stable across the engine.
-    include: [
-      "react",
-      "react/jsx-runtime",
-      "react-dom",
-      "react-dom/client",
-      "react-router-dom",
-      "jszip",
-    ],
-    // The engine is consumed as source via the aliases below and ships
-    // `import ... from '*.zip?url'` for its bundled base themes. Excluding it
-    // from esbuild's dep pre-bundle scan avoids "No loader is configured for
-    // .zip" errors — Vite's own asset pipeline handles `?url` at request time.
-    exclude: [
-      "@k-studio-pro/engine",
-      "@k-studio-pro/engine/shell",
-      "@k-studio-pro/engine/data",
-      "@k-studio-pro/engine/vite",
-    ],
-    // Belt-and-braces: even with the engine excluded, esbuild's scanner still
-    // walks transitively-discovered imports and chokes on `*.zip?url`. Teach
-    // esbuild to treat `.zip` as a file asset (returns a URL string) so the
-    // scan never fails, regardless of which package the import lives in.
-    esbuildOptions: {
-      // `empty` makes the scanner skip the asset's contents and emit nothing.
-      // Vite's own asset pipeline still serves the real zip at request time.
-      loader: { ".zip": "empty" },
-    },
+    include: ["jszip"],
   },
   resolve: {
     // Order matters: more-specific aliases must come before "@".
@@ -84,11 +57,9 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react/jsx-runtime",
       "react/jsx-dev-runtime",
-      "react-router-dom",
       "@tanstack/react-query",
       "@tanstack/query-core",
       "swiper",
-      "@k-studio-pro/engine",
     ],
   },
 }));
