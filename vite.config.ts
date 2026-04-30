@@ -25,11 +25,19 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   optimizeDeps: {
-    include: ["jszip"],
-    // The engine is consumed as source via the aliases below. Excluding it from
-    // esbuild's dep pre-bundle scan avoids "No loader is configured for .zip"
-    // errors on its `import ... from '*.zip?url'` base-theme imports — Vite's
-    // own asset pipeline handles those at request time, but esbuild can't.
+    // Pre-bundle React + router so HMR + dedupe stay stable across the engine.
+    include: [
+      "react",
+      "react/jsx-runtime",
+      "react-dom",
+      "react-dom/client",
+      "react-router-dom",
+      "jszip",
+    ],
+    // The engine is consumed as source via the aliases below and ships
+    // `import ... from '*.zip?url'` for its bundled base themes. Excluding it
+    // from esbuild's dep pre-bundle scan avoids "No loader is configured for
+    // .zip" errors — Vite's own asset pipeline handles `?url` at request time.
     exclude: ["@k-studio-pro/engine"],
   },
   resolve: {
@@ -62,9 +70,11 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react/jsx-runtime",
       "react/jsx-dev-runtime",
+      "react-router-dom",
       "@tanstack/react-query",
       "@tanstack/query-core",
       "swiper",
+      "@k-studio-pro/engine",
     ],
   },
 }));
