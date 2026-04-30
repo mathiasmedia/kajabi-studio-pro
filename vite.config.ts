@@ -138,6 +138,11 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react-dom/client",
       "react-router-dom",
+      // jszip is a UMD bundle. The engine imports it as `import JSZip from 'jszip'`.
+      // Without pre-bundling, Vite serves the raw UMD which has no ESM `default`
+      // export → SyntaxError when the (excluded) engine tries to import it.
+      // Force-include so Vite synthesizes the ESM default for it.
+      "jszip",
     ],
     // CRITICAL: Exclude the engine from dep pre-bundling. If esbuild
     // pre-bundles it, the `.zip?url` imports get replaced with the
