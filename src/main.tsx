@@ -28,7 +28,7 @@
  */
 import { createRoot } from "react-dom/client";
 import { setSupabaseClient } from "@k-studio-pro/engine";
-import { BASE_THEME_URLS } from "@k-studio-pro/engine/engines";
+import { BASE_THEME_URLS } from "@k-studio-pro/engine/src/engines/baseThemeValidator";
 import { supabase } from "@/integrations/supabase/client";
 import App from "./App.tsx";
 
