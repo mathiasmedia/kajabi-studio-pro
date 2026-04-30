@@ -57,9 +57,13 @@ function viteEngineAliases(projectRoot: string) {
 
 function viteEngineZipPlugin(): Plugin {
   const PREFIX = "\0engine-zip-url:";
+  let isBuild = false;
   return {
     name: "k-studio-engine-zip-url",
     enforce: "pre",
+    config(_cfg, env) {
+      isBuild = env.command === "build";
+    },
     async resolveId(source, importer) {
       if (!source.endsWith(".zip?url")) return null;
       const withoutQuery = source.slice(0, -"?url".length);
@@ -67,17 +71,32 @@ function viteEngineZipPlugin(): Plugin {
       if (path.isAbsolute(withoutQuery)) {
         absPath = withoutQuery;
       } else if (importer) {
-        absPath = path.resolve(path.dirname(importer), withoutQuery);
+        // importer may carry a query / null-byte prefix — strip both.
+        const cleanImporter = importer.split("?")[0].replace(/^\0/, "");
+        absPath = path.resolve(path.dirname(cleanImporter), withoutQuery);
       } else {
         return null;
       }
       if (!fs.existsSync(absPath)) return null;
       return PREFIX + absPath;
     },
-    load(id) {
+    async load(id) {
       if (!id.startsWith(PREFIX)) return null;
       const absPath = id.slice(PREFIX.length);
-      return `export { default } from ${JSON.stringify(absPath + "?url")};`;
+      if (isBuild) {
+        // Production: emit the zip as a Rollup asset and export its URL.
+        // Avoids the "re-export references itself" error from naively
+        // doing `export { default } from "<path>?url"`.
+        const source = await fs.promises.readFile(absPath);
+        const referenceId = this.emitFile({
+          type: "asset",
+          name: path.basename(absPath),
+          source,
+        });
+        return `export default import.meta.ROLLUP_FILE_URL_${referenceId};`;
+      }
+      // Dev: serve straight from disk via Vite's /@fs middleware.
+      return `export default ${JSON.stringify("/@fs" + absPath)};`;
     },
   };
 }
