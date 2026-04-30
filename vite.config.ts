@@ -35,10 +35,7 @@ export default defineConfig(({ mode }) => ({
       { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
       { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
       { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
-      // Direct deep import to baseThemeValidator (engine package's `exports`
-      // field doesn't expose engines/ — needed by main.tsx to override the
-      // bundled `.zip?url` URLs that esbuild empties during dep-optimization).
-      { find: "@k-studio-pro/engine/internal/baseThemeValidator", replacement: engineFile("engines/baseThemeValidator.ts") },
+      // (no internal alias needed — main.tsx imports from public engine entry only)
       // Thin-client app shell catch-all — MUST be last
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
