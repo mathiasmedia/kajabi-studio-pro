@@ -28,7 +28,10 @@
  */
 import { createRoot } from "react-dom/client";
 import { setSupabaseClient } from "@k-studio-pro/engine";
-import { BASE_THEME_URLS } from "@k-studio-pro/engine/src/engines/baseThemeValidator";
+// Deep import via the engine's source tree (no `exports` subpath defined for engines/).
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — runtime import; types resolved via tsconfig path alias if present.
+import { BASE_THEME_URLS } from "../node_modules/@k-studio-pro/engine/src/engines/baseThemeValidator.ts";
 import { supabase } from "@/integrations/supabase/client";
 import App from "./App.tsx";
 
