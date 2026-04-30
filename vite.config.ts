@@ -126,7 +126,8 @@ function viteEngineZipPlugin(): Plugin {
           esbuildOptions: {
             plugins: [
               ...(cfg.optimizeDeps?.esbuildOptions?.plugins ?? []),
-              esbuildPlugin as never,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              esbuildPlugin as any,
             ],
           },
         },
