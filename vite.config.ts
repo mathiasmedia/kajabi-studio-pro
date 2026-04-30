@@ -57,9 +57,13 @@ function viteEngineAliases(projectRoot: string) {
 
 function viteEngineZipPlugin(): Plugin {
   const PREFIX = "\0engine-zip-url:";
+  let isBuild = false;
   return {
     name: "k-studio-engine-zip-url",
     enforce: "pre",
+    config(_cfg, env) {
+      isBuild = env.command === "build";
+    },
     async resolveId(source, importer) {
       if (!source.endsWith(".zip?url")) return null;
       const withoutQuery = source.slice(0, -"?url".length);
@@ -76,10 +80,19 @@ function viteEngineZipPlugin(): Plugin {
       if (!fs.existsSync(absPath)) return null;
       return PREFIX + absPath;
     },
-    load(id) {
+    async load(id) {
       if (!id.startsWith(PREFIX)) return null;
       const absPath = id.slice(PREFIX.length);
-      return `export { default } from ${JSON.stringify(absPath + "?url")};`;
+      if (isBuild) {
+        const source = await fs.promises.readFile(absPath);
+        const referenceId = this.emitFile({
+          type: "asset",
+          name: path.basename(absPath),
+          source,
+        });
+        return `export default import.meta.ROLLUP_FILE_URL_${referenceId};`;
+      }
+      return `export default ${JSON.stringify("/@fs" + absPath)};`;
     },
     config(cfg) {
       const esbuildPlugin = {
@@ -111,9 +124,8 @@ function viteEngineZipPlugin(): Plugin {
           });
 
           build.onLoad({ filter: /.*/, namespace: NS }, (args) => {
-            const importPath = args.path + "?url";
             return {
-              contents: `export { default } from ${JSON.stringify(importPath)};`,
+              contents: `export default ${JSON.stringify("/@fs" + args.path)};`,
               loader: "js",
               resolveDir: path.dirname(args.path),
             };
