@@ -78,13 +78,30 @@ export default defineConfig(({ mode }) => ({
       "@k-studio-pro/engine/data",
     ],
     // The engine package imports `.zip?url` files. esbuild's dep-optimizer
-    // needs to keep those imports as real, fetchable URLs — using the `file`
-    // loader copies each .zip into the dep-cache and emits its URL string,
-    // matching what Vite's `?url` suffix expects at runtime.
+    // can't natively handle Vite's `?url` suffix, so we install a plugin
+    // that intercepts every `*.zip?url` (and `*.zip`) resolution inside the
+    // dep-cache and rewrites it to a tiny JS module that re-exports the
+    // ABSOLUTE file path on disk. Vite's main pipeline (which DOES
+    // understand `?url`) then takes that path through its asset transform
+    // and serves the real fetchable URL — no copying zips into public/,
+    // no manual URL overrides in main.tsx.
     esbuildOptions: {
-      loader: {
-        ".zip": "file",
-      },
+      plugins: [
+        {
+          name: "resolve-engine-zips",
+          setup(build) {
+            build.onResolve({ filter: /\.zip(\?url)?$/ }, (args) => {
+              const cleanPath = args.path.replace(/\?url$/, "");
+              const abs = path.resolve(args.resolveDir, cleanPath);
+              return { path: abs, namespace: "engine-zip-url" };
+            });
+            build.onLoad({ filter: /.*/, namespace: "engine-zip-url" }, (args) => ({
+              contents: `export default ${JSON.stringify("/@fs" + args.path)};`,
+              loader: "js",
+            }));
+          },
+        },
+      ],
     },
   },
 }));
