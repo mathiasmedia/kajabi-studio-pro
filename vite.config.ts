@@ -57,13 +57,9 @@ function viteEngineAliases(projectRoot: string) {
 
 function viteEngineZipPlugin(): Plugin {
   const PREFIX = "\0engine-zip-url:";
-  let isBuild = false;
   return {
     name: "k-studio-engine-zip-url",
     enforce: "pre",
-    config(_cfg, env) {
-      isBuild = env.command === "build";
-    },
     async resolveId(source, importer) {
       if (!source.endsWith(".zip?url")) return null;
       const withoutQuery = source.slice(0, -"?url".length);
@@ -80,23 +76,61 @@ function viteEngineZipPlugin(): Plugin {
       if (!fs.existsSync(absPath)) return null;
       return PREFIX + absPath;
     },
-    async load(id) {
+    load(id) {
       if (!id.startsWith(PREFIX)) return null;
       const absPath = id.slice(PREFIX.length);
-      if (isBuild) {
-        // Production: emit the zip as a Rollup asset and export its URL.
-        // Avoids the "re-export references itself" error from naively
-        // doing `export { default } from "<path>?url"`.
-        const source = await fs.promises.readFile(absPath);
-        const referenceId = this.emitFile({
-          type: "asset",
-          name: path.basename(absPath),
-          source,
-        });
-        return `export default import.meta.ROLLUP_FILE_URL_${referenceId};`;
-      }
-      // Dev: serve straight from disk via Vite's /@fs middleware.
-      return `export default ${JSON.stringify("/@fs" + absPath)};`;
+      return `export { default } from ${JSON.stringify(absPath + "?url")};`;
+    },
+    config(cfg) {
+      const esbuildPlugin = {
+        name: "k-studio-engine-zip-url-esbuild",
+        setup(build: {
+          onResolve: (
+            opts: { filter: RegExp },
+            cb: (args: { path: string; importer: string }) => unknown,
+          ) => void;
+          onLoad: (
+            opts: { filter: RegExp; namespace: string },
+            cb: (args: { path: string }) => unknown,
+          ) => void;
+        }) {
+          const NS = "k-engine-zip";
+
+          build.onResolve({ filter: /\.zip\?url$/ }, (args) => {
+            const withoutQuery = args.path.slice(0, -"?url".length);
+            let absPath: string;
+            if (path.isAbsolute(withoutQuery)) {
+              absPath = withoutQuery;
+            } else if (args.importer) {
+              absPath = path.resolve(path.dirname(args.importer), withoutQuery);
+            } else {
+              return null;
+            }
+            if (!fs.existsSync(absPath)) return null;
+            return { path: absPath, namespace: NS };
+          });
+
+          build.onLoad({ filter: /.*/, namespace: NS }, (args) => {
+            const importPath = args.path + "?url";
+            return {
+              contents: `export { default } from ${JSON.stringify(importPath)};`,
+              loader: "js",
+              resolveDir: path.dirname(args.path),
+            };
+          });
+        },
+      };
+
+      return {
+        optimizeDeps: {
+          esbuildOptions: {
+            plugins: [
+              ...(cfg.optimizeDeps?.esbuildOptions?.plugins ?? []),
+              esbuildPlugin as never,
+            ],
+          },
+        },
+      };
     },
   };
 }
@@ -139,29 +173,5 @@ export default defineConfig(({ mode }) => ({
       "react-dom/client",
       "react-router-dom",
     ],
-    // esbuild's dep-scan walks the engine package and chokes on its
-    // `*.zip?url` imports because esbuild has no built-in `.zip` loader.
-    // Stub them out at scan time — Vite's main pipeline (via
-    // viteEngineZipPlugin above) handles the real resolution at request
-    // time, so the stub is never actually executed at runtime.
-    esbuildOptions: {
-      loader: { ".zip": "empty" },
-      plugins: [
-        {
-          name: "k-studio-engine-zip-url-esbuild",
-          setup(build) {
-            build.onResolve({ filter: /\.zip\?url$/ }, (args) => ({
-              path: args.path,
-              namespace: "engine-zip-url-stub",
-              external: false,
-            }));
-            build.onLoad(
-              { filter: /.*/, namespace: "engine-zip-url-stub" },
-              () => ({ contents: 'export default "";', loader: "js" }),
-            );
-          },
-        },
-      ],
-    },
   },
 }));
