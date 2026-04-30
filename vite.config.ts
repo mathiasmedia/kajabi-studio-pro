@@ -35,10 +35,7 @@ export default defineConfig(({ mode }) => ({
       { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
       { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
       { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
-      // Direct deep import to baseThemeValidator (engine package's `exports`
-      // field doesn't expose engines/ — needed by main.tsx to override the
-      // bundled `.zip?url` URLs that esbuild empties during dep-optimization).
-      { find: "@k-studio-pro/engine/internal/baseThemeValidator", replacement: engineFile("engines/baseThemeValidator.ts") },
+      // (no internal alias needed — main.tsx imports from public engine entry only)
       // Thin-client app shell catch-all — MUST be last
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
@@ -81,13 +78,30 @@ export default defineConfig(({ mode }) => ({
       "@k-studio-pro/engine/data",
     ],
     // The engine package imports `.zip?url` files. esbuild's dep-optimizer
-    // doesn't know about Vite's `?url` suffix, so tell it to treat .zip as
-    // empty during pre-bundling — the actual fetch happens at runtime via
-    // the URL emitted by Vite's asset pipeline.
+    // can't natively handle Vite's `?url` suffix, so we install a plugin
+    // that intercepts every `*.zip?url` (and `*.zip`) resolution inside the
+    // dep-cache and rewrites it to a tiny JS module that re-exports the
+    // ABSOLUTE file path on disk. Vite's main pipeline (which DOES
+    // understand `?url`) then takes that path through its asset transform
+    // and serves the real fetchable URL — no copying zips into public/,
+    // no manual URL overrides in main.tsx.
     esbuildOptions: {
-      loader: {
-        ".zip": "empty",
-      },
+      plugins: [
+        {
+          name: "resolve-engine-zips",
+          setup(build) {
+            build.onResolve({ filter: /\.zip(\?url)?$/ }, (args) => {
+              const cleanPath = args.path.replace(/\?url$/, "");
+              const abs = path.resolve(args.resolveDir, cleanPath);
+              return { path: abs, namespace: "engine-zip-url" };
+            });
+            build.onLoad({ filter: /.*/, namespace: "engine-zip-url" }, (args) => ({
+              contents: `export default ${JSON.stringify("/@fs" + args.path)};`,
+              loader: "js",
+            }));
+          },
+        },
+      ],
     },
   },
 }));
