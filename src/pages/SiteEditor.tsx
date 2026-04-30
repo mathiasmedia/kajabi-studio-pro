@@ -22,7 +22,7 @@ import {
   type Site,
 } from '@/lib/siteStore';
 import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
-import { renderDesign, designToPageTrees } from '@/lib/siteDesign/render';
+import { renderDesign, designToPageTrees } from '@k-studio-pro/engine';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
