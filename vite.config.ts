@@ -39,6 +39,13 @@ export default defineConfig(({ mode }) => ({
     // from esbuild's dep pre-bundle scan avoids "No loader is configured for
     // .zip" errors — Vite's own asset pipeline handles `?url` at request time.
     exclude: ["@k-studio-pro/engine"],
+    // Belt-and-braces: even with the engine excluded, esbuild's scanner still
+    // walks transitively-discovered imports and chokes on `*.zip?url`. Teach
+    // esbuild to treat `.zip` as a file asset (returns a URL string) so the
+    // scan never fails, regardless of which package the import lives in.
+    esbuildOptions: {
+      loader: { ".zip": "file" },
+    },
   },
   resolve: {
     // Order matters: more-specific aliases must come before "@".
