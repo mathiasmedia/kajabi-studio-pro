@@ -3,6 +3,7 @@
   "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }],
   "compilerOptions": {
     "paths": {
+      "@kajabi-studio/engine": ["./node_modules/@k-studio-pro/engine/src/index.ts"],
       "@k-studio-pro/engine": ["./node_modules/@k-studio-pro/engine/src/index.ts"],
       "@k-studio-pro/engine/data": ["./node_modules/@k-studio-pro/engine/src/data/index.ts"],
       "@k-studio-pro/engine/shell": ["./node_modules/@k-studio-pro/engine/src/shell/index.ts"],

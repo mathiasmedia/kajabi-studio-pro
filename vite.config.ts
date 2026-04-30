@@ -8,12 +8,12 @@ import { componentTagger } from "lovable-tagger";
 // Engine path helpers — guarantee a trailing slash on directories so deep
 // imports like `@/blocks/components/Slider` don't collapse into
 // `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
-function engineDir(sub) {
+function engineDir(sub: string): string {
   return (
     path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src", sub) + "/"
   );
 }
-function engineFile(file) {
+function engineFile(file: string): string {
   return path.resolve(__dirname, "node_modules/@k-studio-pro/engine/src", file);
 }
 
@@ -33,6 +33,8 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     // Engine-managed aliases MUST come before the catch-all "@".
     alias: [
+      // Legacy alias still used by some engine internals.
+      { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
       // Deep imports — regex AND replacement both end with "/".
       { find: /^@\/blocks\//, replacement: engineDir("blocks") },
       { find: /^@\/engines\//, replacement: engineDir("engines") },
