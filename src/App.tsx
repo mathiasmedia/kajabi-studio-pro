@@ -3,8 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider } from "@/hooks/useAuth";
-import { RequireAuth } from "@/components/RequireAuth";
+import { AuthProvider, RequireAuth } from "@k-studio-pro/engine/shell";
 import Index from "./pages/Index.tsx";
 // LandingPagesDashboard is no longer routed — the unified workspace at "/" shows
 // both websites and landing pages. The file is kept for thin-client sync compat.
