@@ -78,12 +78,12 @@ export default defineConfig(({ mode }) => ({
       "@k-studio-pro/engine/data",
     ],
     // The engine package imports `.zip?url` files. esbuild's dep-optimizer
-    // doesn't know about Vite's `?url` suffix, so tell it to treat .zip as
-    // empty during pre-bundling — the actual fetch happens at runtime via
-    // the URL emitted by Vite's asset pipeline.
+    // needs to keep those imports as real, fetchable URLs — using the `file`
+    // loader copies each .zip into the dep-cache and emits its URL string,
+    // matching what Vite's `?url` suffix expects at runtime.
     esbuildOptions: {
       loader: {
-        ".zip": "empty",
+        ".zip": "file",
       },
     },
   },
