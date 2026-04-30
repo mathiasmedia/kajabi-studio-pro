@@ -28,8 +28,17 @@
  */
 import { createRoot } from "react-dom/client";
 import { setSupabaseClient } from "@k-studio-pro/engine";
+import { BASE_THEME_URLS } from "@k-studio-pro/engine/engines";
 import { supabase } from "@/integrations/supabase/client";
 import App from "./App.tsx";
+
+// Override engine's bundled `.zip?url` imports — esbuild's dep-optimizer
+// stubs them to "" because it doesn't grok Vite's `?url` suffix. The zips
+// are copied into /public/base-theme/ and served by Vite's static handler.
+BASE_THEME_URLS["streamlined-home"] = "/base-theme/streamlined-home.zip";
+BASE_THEME_URLS["streamlined-home-pro"] = "/base-theme/streamlined-home-pro.zip";
+BASE_THEME_URLS["encore-page"] = "/base-theme/encore-page.zip";
+BASE_THEME_URLS["encore-page-pro"] = "/base-theme/encore-page-pro.zip";
 
 // Swiper CSS — MUST come before ./index.css so engine sliders get correct
 // flex layout (.swiper-wrapper{display:flex} / .swiper-slide{flex-shrink:0})
