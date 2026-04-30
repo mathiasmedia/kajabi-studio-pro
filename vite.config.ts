@@ -39,13 +39,16 @@ export default defineConfig(({ mode }) => ({
     ],
   },
   resolve: {
-    // Order matters: more-specific aliases must come before "@".
+    // Order matters: more-specific aliases MUST come before the "@" catch-all.
     alias: [
-      { find: /^@kajabi-studio\/engine$/, replacement: engineFile("index.ts") },
-      // Engine internals still use legacy @/blocks, @/engines, @/lib/siteDesign,
-      // and @/types imports. These aliases must point into the engine package,
-      // but the package entrypoints themselves should resolve normally so the
-      // optimizeDeps excludes above can prevent esbuild zip-loader crashes.
+      // 1-4: engine package subpaths + bare entry
+      { find: /^@k-studio-pro\/engine\/data$/, replacement: engineFile("data/index.ts") },
+      { find: /^@k-studio-pro\/engine\/shell$/, replacement: engineFile("shell/index.ts") },
+      { find: /^@k-studio-pro\/engine\/vite$/, replacement: engineFile("vite.ts") },
+      { find: /^@k-studio-pro\/engine$/, replacement: engineFile("index.ts") },
+      // 5: legacy engine self-import (engine internals still reference this)
+      { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
+      // 6-9: legacy @/blocks, @/engines, @/lib/siteDesign, @/types deep + barrel
       { find: /^@\/blocks\//, replacement: engineDir("blocks") },
       { find: /^@\/engines\//, replacement: engineDir("engines") },
       { find: /^@\/lib\/siteDesign\//, replacement: engineDir("siteDesign") },
@@ -53,6 +56,7 @@ export default defineConfig(({ mode }) => ({
       { find: /^@\/blocks$/, replacement: engineFile("blocks/index.ts") },
       { find: /^@\/engines$/, replacement: engineFile("engines/index.ts") },
       { find: /^@\/lib\/siteDesign$/, replacement: engineFile("siteDesign/index.ts") },
+      // 10: thin-client catch-all — MUST be last
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     dedupe: [
