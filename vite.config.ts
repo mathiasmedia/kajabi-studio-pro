@@ -27,16 +27,21 @@ export default defineConfig(({ mode }) => ({
   // bundled base-theme zips resolve to fetchable URLs.
   assetsInclude: ["**/*.zip"],
   optimizeDeps: {
-    include: ["jszip"],
-    // The engine ships raw TS source and subpath exports from node_modules.
-    // Exclude every imported subpath from dep optimization so Vite handles the
-    // package directly instead of asking esbuild to pre-bundle .zip?url assets.
-    exclude: [
-      "@k-studio-pro/engine",
-      "@k-studio-pro/engine/data",
-      "@k-studio-pro/engine/shell",
-      "@k-studio-pro/engine/vite",
+    force: true,
+    include: [
+      "react",
+      "react/jsx-runtime",
+      "react-dom",
+      "react-dom/client",
+      "react-router-dom",
+      "jszip",
     ],
+    exclude: ["@k-studio-pro/engine"],
+    esbuildOptions: {
+      loader: {
+        ".zip": "empty",
+      },
+    },
   },
   resolve: {
     // Order matters: more-specific aliases MUST come before the "@" catch-all.
